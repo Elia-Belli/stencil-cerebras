@@ -1,0 +1,64 @@
+param memcpy_params: comptime_struct;
+
+// Matrix dimensions
+param M: i16;
+param N: i16;
+param iterations: i16;
+
+// memcpy module provides infrastructure for copying data
+// and launching functions from the host
+const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
+
+
+// 48 kB of global memory contain A
+const n: i16 = (M+2)*(N+2);
+var A: [n]f32;      // A is stored col major
+var A_aux: [n]f32; 
+
+// ptrs to A will be advertised as symbols to host
+var A_ptr: [*]f32 = &A;
+var A_aux_ptr: [*]f32 = &A_aux;
+
+// Compute stencil
+fn stencil() void {
+  
+  var temp: [*]f32;
+  
+  for (@range(i16, n)) |i| {
+    A_aux[i] = 0.0;
+  }
+
+  for (@range(i16, iterations)) |iter| {
+
+    // apply stencil
+    for (@range(i16, 1, M+1, 1)) |i| {
+      for (@range(i16, 1, N+1, 1)) |j| {
+        A_aux_ptr[i*(N+2) + j] += A_ptr[(i-1)*(N+2) + j]
+                                + A_ptr[(i+1)*(N+2) + j]
+                                + A_ptr[i*(N+2) + (j-1)]
+                                + A_ptr[i*(N+2) + (j+1)]
+                                - 4.0*A_ptr[i*(N+2) + j];
+      }
+    }
+
+    // swap A and A_aux
+    temp = A_ptr;
+    A_ptr =  A_aux_ptr;
+    A_aux_ptr = temp;  
+  }
+  sys_mod.unblock_cmd_stream();
+}
+
+fn compute() void {
+  // copy data from host to device
+
+  // launch stencil
+  stencil();
+
+  // copy data from device to host
+}
+
+comptime {
+  @export_symbol(A_ptr, "A");
+  @export_symbol(compute, "compute");
+}

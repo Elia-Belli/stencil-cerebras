@@ -1,0 +1,34 @@
+// matrix dimensions on each PE
+param M: i16;
+param N: i16;
+
+// number of PEs in program
+param width: i16;
+param height: i16;
+param iterations: i16;
+
+
+const memcpy = @import_module("<memcpy/get_params>", .{
+  .width = width,
+  .height = height
+});
+
+layout {
+  // PE coordinates are (column, row)
+  @set_rectangle(width, height);
+  
+  for (@range(i16, width)) |x| {
+    for (@range(i16, height)) |y| {
+      @set_tile_code(x, y, "pe_program.csl", .{
+        .memcpy_params = memcpy.get_params(x),
+        .M = M / width,
+        .N = N / height,
+        .iterations = iterations
+      });
+    }
+  }
+  
+  // export symbol names
+  @export_name("A", [*]f32, true);
+  @export_name("compute", fn()void);
+}

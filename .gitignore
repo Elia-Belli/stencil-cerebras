@@ -1,0 +1,8 @@
+out/
+simfab_traces/
+wio_flows_tmpdir.tfNEvw/
+
+
+sim_stats.json
+simconfig.json
+sim.log
