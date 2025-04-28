@@ -1,32 +1,100 @@
+// Color/ task ID map
+//
+//  ID var           ID var     ID var                ID var
+//   0 east          9         18                    27 reserved (memcpy)
+//   1 west          10         19                    28 reserved (memcpy)
+//   2               11         20                    29 reserved
+//   3               12         21 reserved (memcpy)  30 reserved (memcpy)
+//   4               13         22 reserved (memcpy)  31 reserved
+//   5               14         23 reserved (memcpy)  32
+//   6               15         24                    33
+//   7               16         25                    34
+//   8               17         26                    35
+
 // matrix dimensions on each PE
 param M: i16;
 param N: i16;
 
 // number of PEs in program
-param width: i16;
-param height: i16;
+param kernel_dim_x: i16;
+param kernel_dim_y: i16;
+
 param iterations: i16;
+
+// Colors
+const send_east_color_1: color = @get_color(0);
+const send_east_color_2: color = @get_color(1);
 
 
 const memcpy = @import_module("<memcpy/get_params>", .{
-  .width = width,
-  .height = height
+  .width = kernel_dim_x,
+  .height = kernel_dim_y
 });
 
 layout {
   // PE coordinates are (column, row)
-  @set_rectangle(width, height);
+  @set_rectangle(kernel_dim_x, kernel_dim_y);
+
+  @comptime_assert(M % kernel_dim_y == 0);
+  @comptime_assert(N % kernel_dim_x == 0);
   
-  for (@range(i16, width)) |x| {
-    for (@range(i16, height)) |y| {
-      @set_tile_code(x, y, "pe_program.csl", .{
-        .memcpy_params = memcpy.get_params(x),
-        .M = M / width,
-        .N = N / height,
+  const common_params = .{
+    .M = M / kernel_dim_y,
+    .N = N / kernel_dim_x,
+    .kernel_dim_x = kernel_dim_x,
+    .kernel_dim_y = kernel_dim_y
+  };
+
+  const even_params = @concat_structs(common_params, .{
+  .send_east_color = send_east_color_1, .recv_west_color = send_east_color_2
+  });
+
+  const odd_params = @concat_structs(common_params, .{
+    .send_east_color = send_east_color_2, .recv_west_color = send_east_color_1
+  });
+
+  // Tile Code
+  for (@range(i16, kernel_dim_x)) |pe_x| {
+    for (@range(i16, kernel_dim_y)) |pe_y| {
+      if(pe_x % 2 == 0){
+        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(pe_x),
+        .pe_x = pe_x, .pe_y = pe_y,
         .iterations = iterations
-      });
+        }, even_params));
+      }else{
+        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(pe_x),
+        .pe_x = pe_x, .pe_y = pe_y,
+        .iterations = iterations
+        }, odd_params));
+      }
     }
   }
+
+  // Color Config
+  for (@range(i16, kernel_dim_x)) |pe_x| {
+    for (@range(i16, kernel_dim_y)) |pe_y| {
+      if (pe_x % 2 == 0){
+        if(pe_x == 0){
+          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+        }else if(pe_x == kernel_dim_x - 1){
+          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+        }else{
+          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+        }
+      }else{
+        if(pe_x == kernel_dim_x - 1){
+          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+        }else{
+          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+        }
+      }
+    }
+  }
+  
   
   // export symbol names
   @export_name("A", [*]f32, true);

@@ -1,7 +1,6 @@
 out/
 simfab_traces/
-wio_flows_tmpdir.tfNEvw/
-
+wio_flows_tmpdir*
 
 sim_stats.json
 simconfig.json

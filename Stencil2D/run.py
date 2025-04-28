@@ -16,8 +16,8 @@ args = parser.parse_args()
 with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
   compile_data = json.load(json_file)
 
-w = int(compile_data['params']['width'])
-h = int(compile_data['params']['height'])
+w = int(compile_data['params']['kernel_dim_x'])
+h = int(compile_data['params']['kernel_dim_y'])
 
 N = int(compile_data['params']['N'])
 M = int(compile_data['params']['M'])
@@ -32,7 +32,7 @@ A = np.arange(M*N, dtype=np.float32)
 M_per_PE = M // h
 N_per_PE = N // w
 halo = 1
-tiled_shape = (M_per_PE+2*halo, N_per_PE+2*halo)
+tiled_shape = (M_per_PE + 2*halo, N_per_PE + 2*halo)
 elements_per_PE = (M_per_PE + 2*halo) * (N_per_PE + 2*halo)
 
 y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
