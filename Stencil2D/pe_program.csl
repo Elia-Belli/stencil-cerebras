@@ -12,9 +12,19 @@ param iterations: i16;
 
 param send_east_color: color;
 param recv_west_color: color;
+param send_west_color: color;
+param recv_east_color: color;
+
+param send_north_color: color;
+param recv_south_color: color;
 
 const send_east_oq = @get_output_queue(2);
 const recv_west_iq = @get_input_queue(2);
+const send_west_oq = @get_output_queue(3);
+const recv_east_iq = @get_input_queue(3);
+
+const send_north_oq = @get_output_queue(4);
+const recv_south_iq = @get_input_queue(4);
 
 // memcpy module provides infrastructure for copying data
 // and launching functions from the host
@@ -26,18 +36,38 @@ const n: i16 = (M+2)*(N+2);
 var A: [n]f32;      // A is stored col major
 var A_aux: [n]f32; 
 
-var buffer_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-2]   });
-var buffer_in_dsd =  @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)] });
+var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-2] });
+var buf_west_in_dsd =  @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
+var buf_east_in_dsd =  @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
+var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)+1] });
 
-const out_dsd = @get_dsd(fabout_dsd, .{
-  .extent = M,
+var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)+ (i+1)]});
+var buf_south_in_dsd = @get_dsd(mem1d_dsd, . { .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
+
+const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
   .fabric_color = send_east_color, 
   .output_queue = send_east_oq
 });
-const in_dsd = @get_dsd(fabin_dsd, .{
-  .extent = M,
+const west_in_dsd = @get_dsd(fabin_dsd, .{ .extent = M,
   .fabric_color = recv_west_color,
   .input_queue = recv_west_iq
+});
+const west_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
+  .fabric_color = send_west_color,
+  .output_queue = send_west_oq
+});
+const east_in_dsd = @get_dsd(fabin_dsd, .{ .extent = M,
+  .fabric_color = recv_east_color,
+  .input_queue = recv_east_iq
+});
+
+const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+  .fabric_color = send_north_color, 
+  .output_queue = send_north_oq
+});
+const south_in_dsd = @get_dsd(fabin_dsd, .{ .extent = N,
+  .fabric_color = recv_south_color,
+  .input_queue = recv_south_iq
 });
 
 
@@ -60,14 +90,14 @@ fn stencil() void {
   }
 }
 
-fn send_right() void {
-  @fmovs(out_dsd, buffer_out_dsd, .{ .async = true});
-  //@fmovs(out_dsd, buffer_out_dsd, .{ .async = true, .activate = stencil_task_id});
-}
+fn right_halo() void {
+  @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  //send east
+  @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  //send west
 
-fn recv_left() void {
-  @fmovs(buffer_in_dsd, in_dsd, .{ .async = true});
-  //@fmovs(buffer_in_dsd, in_dsd, .{ .async = true, .activate = stencil_task_id});
+}
+fn left_halo() void {
+  @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = true});    //recv east
+  @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = true});    //recv west
 }
 
 fn compute() void {
@@ -79,11 +109,24 @@ fn compute() void {
 
   for (@range(i16, iterations)) |iter| {
     // exchange halo with other PEs  
-    if(pe_x != kernel_dim_x -1) {
-      send_right();
+    if(pe_x == 0){
+      @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = false});  //send east
+      @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = false});    //recv east
+    }else if(pe_x == kernel_dim_x -1) {
+      @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = false});  //send west
+      @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = false});    //recv west
+    }else{
+      right_halo();
+      left_halo();
     }
-    if(pe_x != 0) {
-      recv_left();
+    
+    if(pe_y == 0){
+      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = false}); // recv south
+    }else if(pe_y == kernel_dim_y -1){
+      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = false}); // send north
+    }else{
+      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = false}); // send north
+      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = false});   // recv south
     }
 
     stencil();
@@ -98,7 +141,6 @@ fn compute() void {
 }
 
 comptime {
-  //@bind_local_task(stencil, stencil_task_id);
 
   @export_symbol(A_ptr, "A");
   @export_symbol(compute, "compute");
