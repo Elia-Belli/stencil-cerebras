@@ -17,6 +17,8 @@ param recv_east_color: color;
 
 param send_north_color: color;
 param recv_south_color: color;
+param send_south_color: color;
+param recv_north_color: color;
 
 const send_east_oq = @get_output_queue(2);
 const recv_west_iq = @get_input_queue(2);
@@ -25,6 +27,8 @@ const recv_east_iq = @get_input_queue(3);
 
 const send_north_oq = @get_output_queue(4);
 const recv_south_iq = @get_input_queue(4);
+const send_south_oq = @get_output_queue(5);
+const recv_north_iq = @get_input_queue(5);
 
 // memcpy module provides infrastructure for copying data
 // and launching functions from the host
@@ -37,12 +41,14 @@ var A: [n]f32;      // A is stored col major
 var A_aux: [n]f32; 
 
 var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-2] });
-var buf_west_in_dsd =  @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
-var buf_east_in_dsd =  @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
+var buf_west_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
+var buf_east_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
 var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)+1] });
 
-var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)+ (i+1)]});
-var buf_south_in_dsd = @get_dsd(mem1d_dsd, . { .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
+var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)       + (i+1)]});
+var buf_south_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
+var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M)   + (i+1)]});
+var buf_north_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[              (i+1)]}); 
 
 const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
   .fabric_color = send_east_color, 
@@ -68,6 +74,14 @@ const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
 const south_in_dsd = @get_dsd(fabin_dsd, .{ .extent = N,
   .fabric_color = recv_south_color,
   .input_queue = recv_south_iq
+});
+const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+  .fabric_color = send_south_color,
+  .output_queue = send_south_oq
+});
+const north_in_dsd = @get_dsd(fabin_dsd, .{ .extent = N,
+  .fabric_color = recv_north_color,
+  .input_queue = recv_north_iq
 });
 
 
@@ -110,22 +124,26 @@ fn compute() void {
   for (@range(i16, iterations)) |iter| {
     // exchange halo with other PEs  
     if(pe_x == 0){
-      @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = false});  //send east
-      @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = false});    //recv east
+      @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
+      @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = true});    // recv east
     }else if(pe_x == kernel_dim_x -1) {
-      @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = false});  //send west
-      @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = false});    //recv west
+      @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
+      @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = true});    // recv west
     }else{
       right_halo();
       left_halo();
     }
     
     if(pe_y == 0){
-      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = false}); // recv south
+      @fmovs(south_out_dsd, buf_south_out_dsd, .{ .async = true}); // send south
+      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = true});   // recv south
     }else if(pe_y == kernel_dim_y -1){
-      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = false}); // send north
+      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = true}); // send north
+      @fmovs(buf_north_in_dsd, north_in_dsd, .{ .async = true});   // recv north
     }else{
       @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = false}); // send north
+      @fmovs(south_out_dsd, buf_south_out_dsd, .{ .async = false}); // send south
+      @fmovs(buf_north_in_dsd, north_in_dsd, .{ .async = false});   // recv north
       @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = false});   // recv south
     }
 
