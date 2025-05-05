@@ -87,7 +87,7 @@ for _ in range(iterations):
 y_expected = y.copy()    
 
 print(f'{A.reshape(M,N)}\n')
-print(f'{y_expected.reshape(M,N)}\n')
-print(f'{y_result.reshape(M,N)}\n')
+print(f'{y_expected.reshape(M,N).astype(np.int32)}\n')  #remove cast to int32
+print(f'{y_result.reshape(M,N).astype(np.int32)}\n')    #remove cast to int32
 np.testing.assert_allclose(y_result.ravel(), y_expected, atol=0.01, rtol=0)
 print("SUCCESS!")

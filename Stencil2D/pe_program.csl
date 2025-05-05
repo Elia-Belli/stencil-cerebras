@@ -105,13 +105,13 @@ fn stencil() void {
 }
 
 fn right_halo() void {
-  @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  //send east
-  @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  //send west
+  @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = false});  //send east
+  @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = false});  //send west
 
 }
 fn left_halo() void {
-  @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = true});    //recv east
-  @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = true});    //recv west
+  @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = false});    //recv east
+  @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = false});    //recv west
 }
 
 fn compute() void {
@@ -124,27 +124,27 @@ fn compute() void {
   for (@range(i16, iterations)) |iter| {
     // exchange halo with other PEs  
     if(pe_x == 0){
-      @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
-      @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = true});    // recv east
+      @fmovs(east_out_dsd, buf_east_out_dsd,  .{ .async = false});  // send east
+      @fmovs(buf_east_in_dsd, east_in_dsd,    .{ .async = false});  // recv east
     }else if(pe_x == kernel_dim_x -1) {
-      @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
-      @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = true});    // recv west
+      @fmovs(buf_west_in_dsd, west_in_dsd,    .{ .async = false});  // recv west
+      @fmovs(west_out_dsd, buf_west_out_dsd,  .{ .async = false});  // send west
     }else{
       right_halo();
       left_halo();
     }
     
     if(pe_y == 0){
-      @fmovs(south_out_dsd, buf_south_out_dsd, .{ .async = true}); // send south
-      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = true});   // recv south
+      @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = false});  // send south
+      @fmovs(buf_south_in_dsd, south_in_dsd,  .{ .async = false});  // recv south
     }else if(pe_y == kernel_dim_y -1){
-      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = true}); // send north
-      @fmovs(buf_north_in_dsd, north_in_dsd, .{ .async = true});   // recv north
+      @fmovs(buf_north_in_dsd, north_in_dsd,  .{ .async = false});  // recv north
+      @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = false});  // send north
     }else{
-      @fmovs(north_out_dsd, buf_north_out_dsd, .{ .async = false}); // send north
-      @fmovs(south_out_dsd, buf_south_out_dsd, .{ .async = false}); // send south
-      @fmovs(buf_north_in_dsd, north_in_dsd, .{ .async = false});   // recv north
-      @fmovs(buf_south_in_dsd, south_in_dsd, .{ .async = false});   // recv south
+      @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = false});  // send north
+      @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = false});  // send south
+      @fmovs(buf_north_in_dsd, north_in_dsd,  .{ .async = false});  // recv north
+      @fmovs(buf_south_in_dsd, south_in_dsd,  .{ .async = false});  // recv south
     }
 
     stencil();
