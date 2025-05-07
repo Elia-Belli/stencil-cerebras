@@ -41,6 +41,9 @@ const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 const n: i16 = (M+2)*(N+2);
 var A: [n]f32;      // A is stored row major (change to col major for efficiency if needed)
 var A_aux = @zeros([n]f32); 
+
+const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0};
+
 var recv_completed: i16 = 0;
 const n_recv_sides = to_receive();
 
@@ -96,14 +99,34 @@ task stencil() void {
   
   if(recv_completed < n_recv_sides) {return;}
 
-  for (@range(i16, 1, M+1, 1)) |i| {
-    for (@range(i16, 1, N+1, 1)) |j| {
-      A_aux_ptr[i*(N+2) + j] += A_ptr[(i-1)*(N+2) + j]
-                              + A_ptr[(i+1)*(N+2) + j]
-                              + A_ptr[i*(N+2) + (j-1)]
-                              + A_ptr[i*(N+2) + (j+1)]
-                              - 4.0*A_ptr[i*(N+2) + j];
-    }
+  var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
+  var a_row_dsd = @get_dsd(mem1d_dsd,   .{.base_address = &A_ptr[1], .extent = N});       // upper row
+  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3],
+                                          .stride = (N+2), .extent = M}); // current col
+  var a_col_dsd = @get_dsd(mem1d_dsd,   .{.base_address = &A_ptr[N+2],
+                                          .stride = (N+2), .extent = M}); // left col
+  
+
+  for (@range(i16, M)) |row| {
+
+    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[0]); // mult by north_coeff -> add upper row
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, (N+2), f32);
+
+    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[4]); // mult by center_coeff -> add self
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, (N+2), f32);
+
+    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[1]); // mult by south_coeff -> add lower row
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, -(N+2), f32);
+
+    aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[2]); // mult by west_coeff -> add left column
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, 2, f32);
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]); // mult by east_coeff -> add right column
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, -1, f32);
+
+    aux_col_dsd = @increment_dsd_offset(aux_col_dsd, 1, f32); // next col
   }
 
   recv_completed = 0;
