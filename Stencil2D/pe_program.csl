@@ -21,14 +21,16 @@ param send_south_color: color;
 param recv_north_color: color;
 
 const send_east_oq = @get_output_queue(2);
-const recv_west_iq = @get_input_queue(2);
 const send_west_oq = @get_output_queue(3);
-const recv_east_iq = @get_input_queue(3);
-
 const send_north_oq = @get_output_queue(4);
-const recv_south_iq = @get_input_queue(4);
 const send_south_oq = @get_output_queue(5);
-const recv_north_iq = @get_input_queue(5);
+
+const recv_west_task_id : data_task_id = @get_data_task_id(recv_west_color);
+const recv_east_task_id : data_task_id = @get_data_task_id(recv_east_color);
+const recv_north_task_id : data_task_id = @get_data_task_id(recv_north_color);
+const recv_south_task_id : data_task_id = @get_data_task_id(recv_south_color);
+
+const stencil_task_id : local_task_id = @get_local_task_id(10);
 
 // memcpy module provides infrastructure for copying data
 // and launching functions from the host
@@ -37,51 +39,30 @@ const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 
 // 48 kB of global memory contain A
 const n: i16 = (M+2)*(N+2);
-var A: [n]f32;      // A is stored col major
-var A_aux: [n]f32; 
+var A: [n]f32;      // A is stored row major (change to col major for efficiency if needed)
+var A_aux = @zeros([n]f32); 
+var recv_completed: i16 = 0;
 
-var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-2] });
-var buf_west_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
-var buf_east_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
-var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)+1] });
-
-var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)       + (i+1)]});
-var buf_south_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
-var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M)   + (i+1)]});
-var buf_north_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[              (i+1)]}); 
+// var buf_west_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
+// var buf_east_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
+// var buf_south_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
+// var buf_north_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[i+1]}); 
 
 const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
   .fabric_color = send_east_color, 
   .output_queue = send_east_oq
 });
-const west_in_dsd = @get_dsd(fabin_dsd, .{ .extent = M,
-  .fabric_color = recv_west_color,
-  .input_queue = recv_west_iq
-});
 const west_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
   .fabric_color = send_west_color,
   .output_queue = send_west_oq
 });
-const east_in_dsd = @get_dsd(fabin_dsd, .{ .extent = M,
-  .fabric_color = recv_east_color,
-  .input_queue = recv_east_iq
-});
-
 const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
   .fabric_color = send_north_color, 
   .output_queue = send_north_oq
 });
-const south_in_dsd = @get_dsd(fabin_dsd, .{ .extent = N,
-  .fabric_color = recv_south_color,
-  .input_queue = recv_south_iq
-});
 const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
   .fabric_color = send_south_color,
   .output_queue = send_south_oq
-});
-const north_in_dsd = @get_dsd(fabin_dsd, .{ .extent = N,
-  .fabric_color = recv_north_color,
-  .input_queue = recv_north_iq
 });
 
 
@@ -90,9 +71,30 @@ var A_ptr: [*]f32 = &A;
 var A_aux_ptr: [*]f32 = &A_aux;
 var temp: [*]f32;
 
+fn to_receive() i16 {
 
-fn stencil() void {
+  // corner pe do only 2 sends
+  if( ((pe_x == 0)               and (pe_y == 0))               or
+      ((pe_x == 0)               and (pe_y == kernel_dim_y -1)) or
+      ((pe_x == kernel_dim_x -1) and (pe_y == 0))               or
+      ((pe_x == kernel_dim_x -1) and (pe_y == kernel_dim_y -1))) {
+    return 2;
+  // edge pe do only 3 sends
+  }else if( (pe_x == 0) or (pe_y == 0) or
+            (pe_x == kernel_dim_x -1)  or
+            (pe_y == kernel_dim_y -1)) {
+    return 3;
+  }else{
+    return 4;
+  }
+
+}
+
+var iter: i16 = 0;
+task stencil() void {
   
+  if(recv_completed < to_receive()) {return;}
+
   for (@range(i16, 1, M+1, 1)) |i| {
     for (@range(i16, 1, N+1, 1)) |j| {
       A_aux_ptr[i*(N+2) + j] += A_ptr[(i-1)*(N+2) + j]
@@ -102,64 +104,109 @@ fn stencil() void {
                               - 4.0*A_ptr[i*(N+2) + j];
     }
   }
+
+  recv_completed = 0;
+
+  temp  = A_ptr;
+  A_ptr = A_aux_ptr;
+  A_aux_ptr = temp;
+
+  iter += 1;
+  if(iter == iterations){
+    sys_mod.unblock_cmd_stream();
+  }else{
+    send_halo();
+  }
 }
 
-fn right_halo() void {
-  @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = false});  //send east
-  @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = false});  //send west
+var left_count: i16 = 0;
+task recv_west(data:f32) void{
+  left_count += 1;
+  A_ptr[(left_count)*(N+2)] = data;
 
-}
-fn left_halo() void {
-  @fmovs(buf_east_in_dsd, east_in_dsd, .{ .async = false});    //recv east
-  @fmovs(buf_west_in_dsd, west_in_dsd, .{ .async = false});    //recv west
+  if(left_count == M){
+    left_count = 0;
+    recv_completed += 1;
+    @activate(stencil_task_id);
+  }
 }
 
-fn compute() void {
+var right_count: i16 = 0;
+task recv_east(data:f32) void{
+  right_count += 1;
+  A_ptr[(right_count+1)*(N+2)-1] = data;
+
+  if(right_count == M){
+    right_count = 0;
+    recv_completed += 1;
+    @activate(stencil_task_id);
+  }
+}
+
+var north_count: i16 = 0;
+task recv_north(data:f32) void{
+  north_count += 1;
+  A_ptr[north_count] = data;
+
+  if(north_count == N){
+    north_count = 0;
+    recv_completed += 1;
+    @activate(stencil_task_id);
+  }
+}
+
+var south_count: i16 = 0;
+task recv_south(data:f32) void{
+  south_count += 1;
+  A_ptr[(N+2)*(M+1) + south_count] = data;
+
+  if(south_count == N){
+    south_count = 0;
+    recv_completed += 1;
+    @activate(stencil_task_id);
+  }
+}
+
+fn send_halo() void {
   
-  // initialize A_aux
-  for (@range(i16, n)) |i| {
-    A_aux[i] = 0.0;
+  var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
+                                  .stride = @as(i8, N+2), .extent = M});
+  var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
+                                  .stride = @as(i8, N+2), .extent = M});
+  var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
+                                  .stride = @as(i8, 1), .extent = N});
+  var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],
+                                  .stride = @as(i8, 1), .extent = N});
+
+  if(pe_x == 0){
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
+  }else if(pe_x == kernel_dim_x -1) {
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
+  }else{
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  //send east
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  //send west
   }
-
-  for (@range(i16, iterations)) |iter| {
-    // exchange halo with other PEs  
-    if(pe_x == 0){
-      @fmovs(east_out_dsd, buf_east_out_dsd,  .{ .async = false});  // send east
-      @fmovs(buf_east_in_dsd, east_in_dsd,    .{ .async = false});  // recv east
-    }else if(pe_x == kernel_dim_x -1) {
-      @fmovs(buf_west_in_dsd, west_in_dsd,    .{ .async = false});  // recv west
-      @fmovs(west_out_dsd, buf_west_out_dsd,  .{ .async = false});  // send west
-    }else{
-      right_halo();
-      left_halo();
-    }
-    
-    if(pe_y == 0){
-      @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = false});  // send south
-      @fmovs(buf_south_in_dsd, south_in_dsd,  .{ .async = false});  // recv south
-    }else if(pe_y == kernel_dim_y -1){
-      @fmovs(buf_north_in_dsd, north_in_dsd,  .{ .async = false});  // recv north
-      @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = false});  // send north
-    }else{
-      @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = false});  // send north
-      @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = false});  // send south
-      @fmovs(buf_north_in_dsd, north_in_dsd,  .{ .async = false});  // recv north
-      @fmovs(buf_south_in_dsd, south_in_dsd,  .{ .async = false});  // recv south
-    }
-
-    stencil();
-
-    // swap A and A_aux
-    temp = A_ptr;
-    A_ptr =  A_aux_ptr;
-    A_aux_ptr = temp;
+  
+  if(pe_y == 0){
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true});  // send south
+  }else if(pe_y == kernel_dim_y -1){
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true});  // send north
+  }else{
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true});  // send north
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true});  // send south
   }
-
-  sys_mod.unblock_cmd_stream();
+  
 }
+
 
 comptime {
+  @bind_local_task(stencil, stencil_task_id);
+
+  @bind_data_task(recv_west, recv_west_task_id);
+  @bind_data_task(recv_east, recv_east_task_id);
+  @bind_data_task(recv_north, recv_north_task_id);
+  @bind_data_task(recv_south, recv_south_task_id);
 
   @export_symbol(A_ptr, "A");
-  @export_symbol(compute, "compute");
+  @export_symbol(send_halo, "compute");
 }
