@@ -97,26 +97,30 @@ task stencil() void {
 
   var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
   var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
-  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3],
-                                          .stride = (N+2), .extent = M}); // current col
-  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2],
-                                          .stride = (N+2), .extent = M}); // left col
 
-  for (@range(i16, M)) |row| {
+  for (@range(i16, M)) |_| {
 
     @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[0]); // mult by north_coeff -> add upper row
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, (N+2), f32);
-
-    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[4]); // mult by center_coeff -> add self
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, (N+2), f32);
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, 2*(N+2), f32);
 
     @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[1]); // mult by south_coeff -> add lower row
     a_row_dsd = @increment_dsd_offset(a_row_dsd, -(N+2), f32);
 
     aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
+  }
+
+  var aux_col_dsd = @get_dsd(mem1d_dsd, 
+    .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M}); // current col
+  var a_col_dsd   = @get_dsd(mem1d_dsd,
+    .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});  // left col
+
+  for (@range(i16, N)) |_| {
 
     @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[2]); // mult by west_coeff -> add left column
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, 2, f32);
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[4]); // mult by center_coeff -> add self
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
 
     @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]); // mult by east_coeff -> add right column
     a_col_dsd = @increment_dsd_offset(a_col_dsd, -1, f32);
@@ -202,8 +206,8 @@ fn send_halo() void {
   }else if(pe_x == kernel_dim_x -1) {
     @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
   }else{
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  //send east
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  //send west
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
   }
   
   if(pe_y == 0){
