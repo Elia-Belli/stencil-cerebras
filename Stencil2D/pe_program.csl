@@ -1,15 +1,16 @@
 param memcpy_params: comptime_struct;
 
+// pe parameters
 param pe_x: i16;
 param pe_y: i16;
 param kernel_dim_x: i16;
 param kernel_dim_y: i16;
 
-// Matrix dimensions
-param M: i16;
-param N: i16;
+param M: i16; // local matrix rows
+param N: i16; // local matrix cols
 param iterations: i16;
 
+// colors
 param send_east_color: color;
 param recv_west_color: color;
 param send_west_color: color;
@@ -20,11 +21,13 @@ param recv_south_color: color;
 param send_south_color: color;
 param recv_north_color: color;
 
+// queues
 const send_east_oq = @get_output_queue(2);
 const send_west_oq = @get_output_queue(3);
 const send_north_oq = @get_output_queue(4);
 const send_south_oq = @get_output_queue(5);
 
+// tasks
 const recv_west_task_id : data_task_id = @get_data_task_id(recv_west_color);
 const recv_east_task_id : data_task_id = @get_data_task_id(recv_east_color);
 const recv_north_task_id : data_task_id = @get_data_task_id(recv_north_color);
@@ -32,26 +35,22 @@ const recv_south_task_id : data_task_id = @get_data_task_id(recv_south_color);
 
 const stencil_task_id : local_task_id = @get_local_task_id(10);
 
-// memcpy module provides infrastructure for copying data
-// and launching functions from the host
+// modules
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 
-
-// 48 kB of global memory contain A
+// 48 kB of global memory
 const n: i16 = (M+2)*(N+2);
-var A: [n]f32;      // A is stored row major (change to col major for efficiency if needed)
-var A_aux = @zeros([n]f32); 
+var A     = @zeros([n]f32); // A is stored row major (change to col major for efficiency if needed)
+var A_aux = @zeros([n]f32);
+//pointers 
+var A_ptr:      [*]f32 = &A;
+var A_aux_ptr:  [*]f32 = &A_aux;
+var temp:       [*]f32;
+// comptime data
+const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -1.0};
+const n_recv_sides = comptime to_receive();
 
-const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0};
-
-var recv_completed: i16 = 0;
-const n_recv_sides = to_receive();
-
-// var buf_west_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+1)*(N+2)]   });
-// var buf_east_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{M} -> A[(i+2)*(N+2)-1] });
-// var buf_south_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[(N+2)*(M+1) + (i+1)]});
-// var buf_north_in_dsd  = @get_dsd(mem1d_dsd, .{ .tensor_access = |i|{N} -> A[i+1]}); 
-
+// DSDs
 const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
   .fabric_color = send_east_color, 
   .output_queue = send_east_oq
@@ -69,10 +68,6 @@ const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
   .output_queue = send_south_oq
 });
 
-// pointers
-var A_ptr: [*]f32 = &A;
-var A_aux_ptr: [*]f32 = &A_aux;
-var temp: [*]f32;
 
 fn to_receive() i16 {
 
@@ -95,17 +90,17 @@ fn to_receive() i16 {
 
 
 var iter: i16 = 0;
+var recv_completed: i16 = 0;
 task stencil() void {
   
   if(recv_completed < n_recv_sides) {return;}
 
   var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
-  var a_row_dsd = @get_dsd(mem1d_dsd,   .{.base_address = &A_ptr[1], .extent = N});       // upper row
+  var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
   var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3],
                                           .stride = (N+2), .extent = M}); // current col
-  var a_col_dsd = @get_dsd(mem1d_dsd,   .{.base_address = &A_ptr[N+2],
+  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2],
                                           .stride = (N+2), .extent = M}); // left col
-  
 
   for (@range(i16, M)) |row| {
 

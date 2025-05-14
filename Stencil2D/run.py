@@ -27,8 +27,9 @@ print(f"\nSimulation Info\n  rows: {M}\n  cols: {N}\n  iterations: {iterations}\
       \n\nFabric Info\n  width: {w}\n  height: {h}\n")
 
 # Construct A
-A = np.arange(M*N, dtype=np.float32)
-
+np.random.seed(0)
+A = (np.random.rand(N*M) * 10).astype(np.float32)
+ 
 M_per_PE = M // h
 N_per_PE = N // w
 halo = 1
@@ -68,17 +69,21 @@ runner.stop()
 
 
 # Ensure that the result matches our expectation
-y = A.copy()
+y = np.zeros(M*N, dtype=np.float32)
+temp = np.zeros(M*N, dtype=np.float32)
 y_aux = np.zeros(M*N, dtype=np.float32)
+y_expected = np.zeros(M*N, dtype=np.float32)
+
+y = A.copy()
 
 for _ in range(iterations):
   for i in range(M):
     for j in range(N):
       if(i-1 >= 0): y_aux[i*N+j] += y[(i-1)*N+j]
-      if(i+1 < M):  y_aux[i*N+j] += y[(i+1)*N+j]
+      y_aux[i*N+j] += y[i*N+j]
+      if(i+1 < M) : y_aux[i*N+j] += y[(i+1)*N+j]
       if(j-1 >= 0): y_aux[i*N+j] += y[i*N+j-1]
-      if(j+1 < N):  y_aux[i*N+j] += y[i*N+j+1]
-      y_aux[i*N+j] -= 4*y[i*N+j]
+      if(j+1 < N) : y_aux[i*N+j] += y[i*N+j+1]
 
   temp = y.copy()
   y = y_aux.copy()
@@ -87,7 +92,7 @@ for _ in range(iterations):
 y_expected = y.copy()    
 
 print(f'{A.reshape(M,N)}\n')
-print(f'{y_expected.reshape(M,N).astype(np.int32)}\n')  #remove cast to int32
-print(f'{y_result.reshape(M,N).astype(np.int32)}\n')    #remove cast to int32
-np.testing.assert_allclose(y_result.ravel(), y_expected, atol=0.01, rtol=0)
+print(f'{y_expected.reshape(M,N)}\n')  
+print(f'{y_result.reshape(M,N)}\n')    
+np.testing.assert_allclose(y_result.ravel(), y_expected, atol=1e-5, rtol=1e-7)
 print("SUCCESS!")
