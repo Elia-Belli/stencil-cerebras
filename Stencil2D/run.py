@@ -29,7 +29,7 @@ print(f"\nSimulation Info\n  rows: {M}\n  cols: {N}\n  iterations: {iterations}\
 # Construct A
 np.random.seed(0)
 A = (np.random.rand(N*M) * 10).astype(np.float32)
- 
+
 M_per_PE = M // h
 N_per_PE = N // w
 halo = 1
@@ -80,10 +80,11 @@ for _ in range(iterations):
   for i in range(M):
     for j in range(N):
       if(i-1 >= 0): y_aux[i*N+j] += y[(i-1)*N+j]
-      y_aux[i*N+j] += y[i*N+j]
       if(i+1 < M) : y_aux[i*N+j] += y[(i+1)*N+j]
       if(j-1 >= 0): y_aux[i*N+j] += y[i*N+j-1]
+      y_aux[i*N+j] -= 4.0*y[i*N+j]
       if(j+1 < N) : y_aux[i*N+j] += y[i*N+j+1]
+
 
   temp = y.copy()
   y = y_aux.copy()
@@ -93,6 +94,15 @@ y_expected = y.copy()
 
 print(f'{A.reshape(M,N)}\n')
 print(f'{y_expected.reshape(M,N)}\n')  
-print(f'{y_result.reshape(M,N)}\n')    
-np.testing.assert_allclose(y_result.ravel(), y_expected, atol=1e-5, rtol=1e-7)
+print(f'{y_result.reshape(M,N)}\n')  
+
+with open("wse_result.txt", "w+") as f:
+  for i in y_result.ravel():
+    print(f'{i}', file=f)  
+
+with open("py_result.txt", "w+") as f:
+  for i in y_expected:
+    print(f'{i}', file=f)  
+
+np.testing.assert_allclose(y_result.ravel(), y_expected, atol=0, rtol=0)
 print("SUCCESS!")

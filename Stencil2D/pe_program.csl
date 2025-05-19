@@ -6,9 +6,9 @@ param pe_y: i16;
 param kernel_dim_x: i16;
 param kernel_dim_y: i16;
 
-param M: i16; // local matrix rows
-param N: i16; // local matrix cols
-param iterations: i16;
+param M: i32; // local matrix rows
+param N: i32; // local matrix cols
+param iterations: i32;
 
 // colors
 param send_east_color: color;
@@ -35,11 +35,16 @@ const recv_south_task_id : data_task_id = @get_data_task_id(recv_south_color);
 
 const stencil_task_id : local_task_id = @get_local_task_id(10);
 
+const north_id : local_task_id = @get_local_task_id(11);
+const south_id : local_task_id = @get_local_task_id(12);
+const east_id : local_task_id = @get_local_task_id(13);
+const west_id : local_task_id = @get_local_task_id(14);
+
 // modules
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 
 // 48 kB of global memory
-const n: i16 = (M+2)*(N+2);
+const n: i32 = (M+2)*(N+2);
 var A     = @zeros([n]f32); // A is stored row major (change to col major for efficiency if needed)
 var A_aux = @zeros([n]f32);
 //pointers 
@@ -47,8 +52,8 @@ var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
 var temp:       [*]f32;
 // comptime data
-const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -1.0};
-const n_recv_sides = comptime to_receive();
+const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0};
+const n_sides = comptime sides();
 
 // DSDs
 const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
@@ -69,7 +74,7 @@ const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
 });
 
 
-fn to_receive() i16 {
+fn sides() i8 {
 
   // corner pe do only 2 sends
   if( ((pe_x == 0)               and (pe_y == 0))               or
@@ -89,11 +94,9 @@ fn to_receive() i16 {
 }
 
 
-var iter: i16 = 0;
-var recv_completed: i16 = 0;
+var iter: i32 = 0;
+var recv_completed: i8 = 0;
 task stencil() void {
-  
-  if(recv_completed < n_recv_sides) {return;}
 
   var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
   var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
@@ -134,96 +137,121 @@ task stencil() void {
   A_ptr = A_aux_ptr;
   A_aux_ptr = temp;
 
+  @unblock(recv_north_task_id);
+  @unblock(recv_south_task_id);
+  @unblock(recv_west_task_id);
+  @unblock(recv_east_task_id);
+
   iter += 1;
   if(iter == iterations){
     sys_mod.unblock_cmd_stream();
   }else{
+    while(send_completed != n_sides) {}
     send_halo();
   }
 }
 
-var left_count: i16 = 0;
+var left_count: i32 = 0;
 task recv_west(data:f32) void{
   left_count += 1;
   A_ptr[(left_count)*(N+2)] = data;
 
   if(left_count == M){
+    @block(recv_west_task_id);
     left_count = 0;
-    recv_completed += 1;
-    @activate(stencil_task_id);
+    recv_activate();
   }
 }
 
-var right_count: i16 = 0;
+var right_count: i32 = 0;
 task recv_east(data:f32) void{
   right_count += 1;
   A_ptr[(right_count+1)*(N+2)-1] = data;
 
   if(right_count == M){
+    @block(recv_east_task_id);
     right_count = 0;
-    recv_completed += 1;
-    @activate(stencil_task_id);
+    recv_activate();
   }
 }
 
-var north_count: i16 = 0;
+var north_count: i32 = 0;
 task recv_north(data:f32) void{
   north_count += 1;
   A_ptr[north_count] = data;
 
   if(north_count == N){
+    @block(recv_north_task_id);
     north_count = 0;
-    recv_completed += 1;
-    @activate(stencil_task_id);
+    recv_activate();
   }
 }
 
-var south_count: i16 = 0;
+var south_count: i32 = 0;
 task recv_south(data:f32) void{
   south_count += 1;
   A_ptr[(N+2)*(M+1) + south_count] = data;
 
   if(south_count == N){
+    @block(recv_south_task_id);
     south_count = 0;
-    recv_completed += 1;
-    @activate(stencil_task_id);
+    recv_activate();
   }
+}
+
+fn recv_activate() void {
+  recv_completed += 1;
+  if(recv_completed == n_sides) @activate(stencil_task_id);
 }
 
 fn send_halo() void {
   
+  send_completed = 0;
+
   var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
-                                  .stride = @as(i8, N+2), .extent = M});
+                                  .stride = @as(i16, N+2), .extent = M});
   var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i8, N+2), .extent = M});
+                                  .stride = @as(i16, N+2), .extent = M});
   var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i8, 1), .extent = N});
+                                  .stride = @as(i16, 1), .extent = N});
   var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],
-                                  .stride = @as(i8, 1), .extent = N});
+                                  .stride = @as(i16, 1), .extent = N});
 
   if(pe_x == 0){
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
   }else if(pe_x == kernel_dim_x -1) {
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
   }else{
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true});  // send east
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true});  // send west
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
   }
   
   if(pe_y == 0){
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true});  // send south
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
   }else if(pe_y == kernel_dim_y -1){
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true});  // send north
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
   }else{
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true});  // send north
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true});  // send south
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
   }
   
 }
 
+var send_completed: i8 = 0;
+task north_end() void { send_completed += 1; }
+task south_end() void { send_completed += 1; }
+task east_end() void { send_completed += 1; }
+task west_end() void { send_completed += 1; }
+
+
 
 comptime {
   @bind_local_task(stencil, stencil_task_id);
+
+  @bind_local_task(east_end, east_id);
+  @bind_local_task(west_end, west_id);
+  @bind_local_task(north_end, north_id);
+  @bind_local_task(south_end, south_id);
 
   @bind_data_task(recv_west, recv_west_task_id);
   @bind_data_task(recv_east, recv_east_task_id);
