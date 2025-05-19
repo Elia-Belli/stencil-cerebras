@@ -5,3 +5,6 @@ OPT := -O3
 
 all:
 		${CC} ${CFLAGS} ${OPT} stencil.c -o stencil
+
+clean:
+		rm stencil

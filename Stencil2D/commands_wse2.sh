@@ -6,7 +6,7 @@ set -e
 cslc --arch=wse2 ./layout.csl \
 --fabric-dims=11,6 \
 --fabric-offsets=4,1 \
---params=kernel_dim_x:4,kernel_dim_y:4,M:48,N:48,iterations:5 \
+--params=kernel_dim_x:4,kernel_dim_y:4,M:64,N:64,iterations:10 \
 -o out --memcpy --channels 1
 
 cs_python run.py --name out

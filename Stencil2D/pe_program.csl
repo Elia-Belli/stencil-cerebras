@@ -39,6 +39,7 @@ const north_id : local_task_id = @get_local_task_id(11);
 const south_id : local_task_id = @get_local_task_id(12);
 const east_id : local_task_id = @get_local_task_id(13);
 const west_id : local_task_id = @get_local_task_id(14);
+const wait_send_task_id : local_task_id = @get_local_task_id(15);
 
 // modules
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
@@ -146,9 +147,13 @@ task stencil() void {
   if(iter == iterations){
     sys_mod.unblock_cmd_stream();
   }else{
-    while(send_completed != n_sides) {}
-    send_halo();
+    @activate(wait_send_task_id);
   }
+}
+
+task wait_send() void {
+  if(send_completed == n_sides) { send_halo();}
+  else { @activate(wait_send_task_id); }
 }
 
 var left_count: i32 = 0;
@@ -252,6 +257,7 @@ comptime {
   @bind_local_task(west_end, west_id);
   @bind_local_task(north_end, north_id);
   @bind_local_task(south_end, south_id);
+  @bind_local_task(wait_send, wait_send_task_id);
 
   @bind_data_task(recv_west, recv_west_task_id);
   @bind_data_task(recv_east, recv_east_task_id);
