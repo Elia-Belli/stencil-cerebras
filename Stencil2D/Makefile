@@ -4,7 +4,7 @@ CFLAGS = -g
 OPT := -O3
 
 all:
-		${CC} ${CFLAGS} ${OPT} stencil.c -o stencil
+		${CC} ${CFLAGS} ${OPT} stencil.c -o ./out/bin/stencil
 
 clean:
-		rm stencil
+		rm ./out/bin/stencil

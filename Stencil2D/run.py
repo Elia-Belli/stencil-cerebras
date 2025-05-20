@@ -96,11 +96,11 @@ print(f'{A.reshape(M,N)}\n')
 print(f'{y_expected.reshape(M,N)}\n')  
 print(f'{y_result.reshape(M,N)}\n')  
 
-with open("wse_result.txt", "w+") as f:
+with open("./out/output/wse_result.txt", "w+") as f:
   for i in y_result.ravel():
     print(f'{i}', file=f)  
 
-with open("py_result.txt", "w+") as f:
+with open("./out/output/py_result.txt", "w+") as f:
   for i in y_expected:
     print(f'{i}', file=f)  
 

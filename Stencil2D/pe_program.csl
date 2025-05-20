@@ -33,8 +33,6 @@ const recv_east_task_id : data_task_id = @get_data_task_id(recv_east_color);
 const recv_north_task_id : data_task_id = @get_data_task_id(recv_north_color);
 const recv_south_task_id : data_task_id = @get_data_task_id(recv_south_color);
 
-const stencil_task_id : local_task_id = @get_local_task_id(10);
-
 const north_id : local_task_id = @get_local_task_id(11);
 const south_id : local_task_id = @get_local_task_id(12);
 const east_id : local_task_id = @get_local_task_id(13);
@@ -44,7 +42,10 @@ const wait_send_task_id : local_task_id = @get_local_task_id(15);
 // modules
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 
-// 48 kB of global memory
+//////////////////////////////////////////////////
+//        48 kB of global memory                //    
+//////////////////////////////////////////////////
+
 const n: i32 = (M+2)*(N+2);
 var A     = @zeros([n]f32); // A is stored row major (change to col major for efficiency if needed)
 var A_aux = @zeros([n]f32);
@@ -53,7 +54,7 @@ var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
 var temp:       [*]f32;
 // comptime data
-const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0};
+const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0}; // TODO: set with memcpyH2D
 const n_sides = comptime sides();
 
 // DSDs
@@ -77,27 +78,124 @@ const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
 
 fn sides() i8 {
 
-  // corner pe do only 2 sends
   if( ((pe_x == 0)               and (pe_y == 0))               or
       ((pe_x == 0)               and (pe_y == kernel_dim_y -1)) or
       ((pe_x == kernel_dim_x -1) and (pe_y == 0))               or
       ((pe_x == kernel_dim_x -1) and (pe_y == kernel_dim_y -1))) {
-    return 2;
-  // edge pe do only 3 sends
+    return 2;   // corner have 2 neighbors
   }else if( (pe_x == 0) or (pe_y == 0) or
             (pe_x == kernel_dim_x -1)  or
             (pe_y == kernel_dim_y -1)) {
-    return 3;
-  }else{
-    return 4;
-  }
+    return 3;  // edges have 3 neighbors
+  }else{ return 4;} // inner have 4 neighbors
 
 }
 
+///////////////////////////////////////////////
+//                PROGRAM                    //
+///////////////////////////////////////////////
 
-var iter: i32 = 0;
+// SEND
+fn send_halo() void {
+  
+  send_completed = 0; // reset counter
+
+  var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
+                                  .stride = @as(i16, N+2), .extent = M});
+  var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
+                                  .stride = @as(i16, N+2), .extent = M});
+  var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
+                                  .stride = @as(i16, 1), .extent = N});
+  var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],
+                                  .stride = @as(i16, 1), .extent = N});
+
+  if(pe_x == 0){
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
+  }else if(pe_x == kernel_dim_x -1) {
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
+  }else{
+    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
+    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
+  }
+  
+  if(pe_y == 0){
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
+  }else if(pe_y == kernel_dim_y -1){
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
+  }else{
+    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
+  }
+  
+}
+
+// completed send callbacks
+var send_completed: i8 = 0;
+task north_end() void { send_completed += 1; }
+task south_end() void { send_completed += 1; }
+task east_end() void { send_completed += 1; }
+task west_end() void { send_completed += 1; }
+
+// RECV
+var left_count: i32 = 0;
+var right_count: i32 = 0;
+var north_count: i32 = 0;
+var south_count: i32 = 0;
+
+task recv_west(data:f32) void{
+  left_count += 1;
+  A_ptr[(left_count)*(N+2)] = data;
+
+  if(left_count == M){
+    @block(recv_west_task_id);
+    left_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_east(data:f32) void{
+  right_count += 1;
+  A_ptr[(right_count+1)*(N+2)-1] = data;
+
+  if(right_count == M){
+    @block(recv_east_task_id);
+    right_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_north(data:f32) void{
+  north_count += 1;
+  A_ptr[north_count] = data;
+
+  if(north_count == N){
+    @block(recv_north_task_id);
+    north_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_south(data:f32) void{
+  south_count += 1;
+  A_ptr[(N+2)*(M+1) + south_count] = data;
+
+  if(south_count == N){
+    @block(recv_south_task_id);
+    south_count = 0;
+    recv_callback();
+  }
+}
+
+// completed recv callback --> complete all to start COMPUTE
 var recv_completed: i8 = 0;
-task stencil() void {
+fn recv_callback() void {
+  recv_completed += 1;
+  if(recv_completed == n_sides) stencil();
+}
+
+// COMPUTE
+var iter: i32 = 0;
+fn stencil() void {
 
   var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
   var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
@@ -132,12 +230,11 @@ task stencil() void {
     aux_col_dsd = @increment_dsd_offset(aux_col_dsd, 1, f32); // next col
   }
 
-  recv_completed = 0;
-
   temp  = A_ptr;
   A_ptr = A_aux_ptr;
   A_aux_ptr = temp;
 
+  recv_completed = 0;
   @unblock(recv_north_task_id);
   @unblock(recv_south_task_id);
   @unblock(recv_west_task_id);
@@ -151,108 +248,14 @@ task stencil() void {
   }
 }
 
+// wait for all sends to finish --> NEXT ITER
 task wait_send() void {
   if(send_completed == n_sides) { send_halo();}
   else { @activate(wait_send_task_id); }
 }
 
-var left_count: i32 = 0;
-task recv_west(data:f32) void{
-  left_count += 1;
-  A_ptr[(left_count)*(N+2)] = data;
-
-  if(left_count == M){
-    @block(recv_west_task_id);
-    left_count = 0;
-    recv_activate();
-  }
-}
-
-var right_count: i32 = 0;
-task recv_east(data:f32) void{
-  right_count += 1;
-  A_ptr[(right_count+1)*(N+2)-1] = data;
-
-  if(right_count == M){
-    @block(recv_east_task_id);
-    right_count = 0;
-    recv_activate();
-  }
-}
-
-var north_count: i32 = 0;
-task recv_north(data:f32) void{
-  north_count += 1;
-  A_ptr[north_count] = data;
-
-  if(north_count == N){
-    @block(recv_north_task_id);
-    north_count = 0;
-    recv_activate();
-  }
-}
-
-var south_count: i32 = 0;
-task recv_south(data:f32) void{
-  south_count += 1;
-  A_ptr[(N+2)*(M+1) + south_count] = data;
-
-  if(south_count == N){
-    @block(recv_south_task_id);
-    south_count = 0;
-    recv_activate();
-  }
-}
-
-fn recv_activate() void {
-  recv_completed += 1;
-  if(recv_completed == n_sides) @activate(stencil_task_id);
-}
-
-fn send_halo() void {
-  
-  send_completed = 0;
-
-  var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
-                                  .stride = @as(i16, N+2), .extent = M});
-  var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i16, N+2), .extent = M});
-  var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i16, 1), .extent = N});
-  var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],
-                                  .stride = @as(i16, 1), .extent = N});
-
-  if(pe_x == 0){
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(pe_x == kernel_dim_x -1) {
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
-  }else{
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
-  }
-  
-  if(pe_y == 0){
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(pe_y == kernel_dim_y -1){
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
-  }else{
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
-  }
-  
-}
-
-var send_completed: i8 = 0;
-task north_end() void { send_completed += 1; }
-task south_end() void { send_completed += 1; }
-task east_end() void { send_completed += 1; }
-task west_end() void { send_completed += 1; }
-
-
 
 comptime {
-  @bind_local_task(stencil, stencil_task_id);
-
   @bind_local_task(east_end, east_id);
   @bind_local_task(west_end, west_id);
   @bind_local_task(north_end, north_id);
