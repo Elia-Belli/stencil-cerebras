@@ -1,5 +1,12 @@
 param memcpy_params: comptime_struct;
 
+const timestamp = @import_module("<time>");
+var tsc_end_buf = @zeros([timestamp.tsc_size_words]u16);
+var tsc_start_buf = @zeros([timestamp.tsc_size_words]u16);
+
+var timer_buf = @zeros([3]f32);
+var ptr_timer_buf: [*]f32 = &timer_buf;
+
 // pe parameters
 param pe_x: i16;
 param pe_y: i16;
@@ -99,6 +106,10 @@ fn sides() i8 {
 fn send_halo() void {
   
   send_completed = 0; // reset counter
+  if(iter == 0) {
+    timestamp.enable_tsc();
+    timestamp.get_timestamp(&tsc_start_buf);
+  }
 
   var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
                                   .stride = @as(i16, N+2), .extent = M});
@@ -242,6 +253,24 @@ fn stencil() void {
 
   iter += 1;
   if(iter == iterations){
+    timestamp.get_timestamp(&tsc_end_buf);
+    timestamp.disable_tsc();
+    var lo_: u16 = 0;
+    var hi_: u16 = 0;
+    var word: u32 = 0;
+
+    lo_ = tsc_start_buf[0];
+    hi_ = tsc_start_buf[1];
+    timer_buf[0] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+    lo_ = tsc_start_buf[2];
+    hi_ = tsc_end_buf[0];
+    timer_buf[1] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+    lo_ = tsc_end_buf[1];
+    hi_ = tsc_end_buf[2];
+    timer_buf[2] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+    
     sys_mod.unblock_cmd_stream();
   }else{
     @activate(wait_send_task_id);
@@ -269,4 +298,6 @@ comptime {
 
   @export_symbol(A_ptr, "A");
   @export_symbol(send_halo, "compute");
+
+  @export_symbol(ptr_timer_buf, "maxmin_time");
 }
