@@ -7,7 +7,7 @@ var tsc_start_buf = @zeros([timestamp.tsc_size_words]u16);
 var timer_buf = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
-// pe parameters
+// pe parameters  
 param pe_x: i16;
 param pe_y: i16;
 param kernel_dim_x: i16;
@@ -39,6 +39,8 @@ const recv_west_task_id : data_task_id = @get_data_task_id(recv_west_color);
 const recv_east_task_id : data_task_id = @get_data_task_id(recv_east_color);
 const recv_north_task_id : data_task_id = @get_data_task_id(recv_north_color);
 const recv_south_task_id : data_task_id = @get_data_task_id(recv_south_color);
+
+const stencil_task_id : local_task_id = @get_local_task_id(10);
 
 const north_id : local_task_id = @get_local_task_id(11);
 const south_id : local_task_id = @get_local_task_id(12);
@@ -201,12 +203,12 @@ task recv_south(data:f32) void{
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
-  if(recv_completed == n_sides) stencil();
+  if(recv_completed == n_sides) @activate(stencil_task_id);
 }
 
 // COMPUTE
 var iter: i32 = 0;
-fn stencil() void {
+task stencil() void {
 
   var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
   var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
@@ -270,7 +272,7 @@ fn stencil() void {
     lo_ = tsc_end_buf[1];
     hi_ = tsc_end_buf[2];
     timer_buf[2] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
-    
+
     sys_mod.unblock_cmd_stream();
   }else{
     @activate(wait_send_task_id);
@@ -285,6 +287,8 @@ task wait_send() void {
 
 
 comptime {
+  @bind_local_task(stencil, stencil_task_id);
+
   @bind_local_task(east_end, east_id);
   @bind_local_task(west_end, west_id);
   @bind_local_task(north_end, north_id);
