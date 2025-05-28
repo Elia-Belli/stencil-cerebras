@@ -100,6 +100,26 @@ fn sides() i8 {
 
 }
 
+fn final_tsc() void {
+  timestamp.get_timestamp(&tsc_end_buf);
+  timestamp.disable_tsc();
+  var lo_: u16 = 0;
+  var hi_: u16 = 0;
+  var word: u32 = 0;
+
+  lo_ = tsc_start_buf[0];
+  hi_ = tsc_start_buf[1];
+  timer_buf[0] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+  lo_ = tsc_start_buf[2];
+  hi_ = tsc_end_buf[0];
+  timer_buf[1] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+  lo_ = tsc_end_buf[1];
+  hi_ = tsc_end_buf[2];
+  timer_buf[2] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+}
+
 ///////////////////////////////////////////////
 //                PROGRAM                    //
 ///////////////////////////////////////////////
@@ -203,7 +223,13 @@ task recv_south(data:f32) void{
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
-  if(recv_completed == n_sides) @activate(stencil_task_id);
+  if(recv_completed == n_sides) @activate(wait_send_task_id);
+}
+
+// wait for all sends to finish --> NEXT ITER
+task wait_send() void {
+  if(send_completed == n_sides) { @activate(stencil_task_id);}
+  else { @activate(wait_send_task_id); }
 }
 
 // COMPUTE
@@ -255,36 +281,12 @@ task stencil() void {
 
   iter += 1;
   if(iter == iterations){
-    timestamp.get_timestamp(&tsc_end_buf);
-    timestamp.disable_tsc();
-    var lo_: u16 = 0;
-    var hi_: u16 = 0;
-    var word: u32 = 0;
-
-    lo_ = tsc_start_buf[0];
-    hi_ = tsc_start_buf[1];
-    timer_buf[0] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
-
-    lo_ = tsc_start_buf[2];
-    hi_ = tsc_end_buf[0];
-    timer_buf[1] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
-
-    lo_ = tsc_end_buf[1];
-    hi_ = tsc_end_buf[2];
-    timer_buf[2] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
-
+    final_tsc();  // completion timestamp
     sys_mod.unblock_cmd_stream();
   }else{
-    @activate(wait_send_task_id);
+    send_halo();
   }
 }
-
-// wait for all sends to finish --> NEXT ITER
-task wait_send() void {
-  if(send_completed == n_sides) { send_halo();}
-  else { @activate(wait_send_task_id); }
-}
-
 
 comptime {
   @bind_local_task(stencil, stencil_task_id);

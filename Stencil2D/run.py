@@ -45,7 +45,7 @@ elements_per_PE = (M_per_PE + 2*halo) * (N_per_PE + 2*halo)
 y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
 
 # Construct a runner using SdkRuntime
-runner = SdkRuntime(args.name, cmaddr=args.cmaddr, suppress_simfab_trace=True, simfab_numthreads=2)
+runner = SdkRuntime(args.name, cmaddr=args.cmaddr, suppress_simfab_trace=False, simfab_numthreads=8)
 
 # Get symbols
 A_symbol = runner.get_id('A')
@@ -55,39 +55,36 @@ symbol_maxmin_time = runner.get_id("maxmin_time")
 runner.load()
 runner.run()
 
-print("Copying A onto Device...")
 A_prepared = A.reshape(w, M_per_PE, h, N_per_PE).transpose(0, 2, 1, 3)
 A_prepared = np.pad(A_prepared, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
-print("DONE!")
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+print("Copying A onto Device...")
 
-print("Starting Computation...")
 runner.launch('compute', nonblock=False)
 print("DONE!")
+print("Starting Computation...")
 
 if verify:
-  print("Copying back result...")
   runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
     order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
   print("DONE!")
+  print("Copying back result...")
 
-  print("Unpacking result...")
   y_result = y_result.reshape(w, h, *tiled_shape)
   y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
-  print("DONE!")
 
 
-print("Copying back timestamps")
 data = np.zeros((w*h*3), dtype=np.uint32)
 runner.memcpy_d2h(data, symbol_maxmin_time, 0, 0, w, h, 3,
   streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
 maxmin_time_hwl = data.view(np.float32).reshape((h, w, 3))
-print("DONE!\n")
-
+print("DONE!")
+print("Copying back timestamps...")
 
 # Stop the program
 runner.stop()
+print("DONE!\n")
 
 
 # ############################
