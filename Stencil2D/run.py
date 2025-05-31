@@ -45,7 +45,7 @@ elements_per_PE = (M_per_PE + 2*halo) * (N_per_PE + 2*halo)
 y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
 
 # Construct a runner using SdkRuntime
-runner = SdkRuntime(args.name, cmaddr=args.cmaddr, suppress_simfab_trace=False, simfab_numthreads=8)
+runner = SdkRuntime(args.name, cmaddr=args.cmaddr, suppress_simfab_trace=True, simfab_numthreads=8)
 
 # Get symbols
 A_symbol = runner.get_id('A')
@@ -158,10 +158,18 @@ print("Max cycles (", max_w, ", ", max_h, "): ", max_cycles)
 
 
 flops = (M*N) * 5 * 2 * iterations  # 5 fmac (2 flops) per f32 at each iteration
-print("\nTotal FLOPs: ", flops)
+cells = (M*N) * iterations
 time = max_cycles / 850e6 # cycles / clock freq in (s)
+
+print("\nTotal FLOPs: ", flops)
+print("Total Cells: ", cells)
 print(f'Global Throughput: {flops / time:.2e} (FLOP/s)')
+print(f'                   {cells / time:.2e} (Cell/s)')
 
 tile_flops = flops/(h*w)
+tile_cells = cells/(h*w)
 print("\nFLOPs per Tile: ", tile_flops)
+print("Cells per Tile: ", tile_cells)
 print(f'Tile Throughput: {tile_flops / time:.2e} (FLOP/s)')
+print(f'                 {tile_cells / time:.2e} (Cell/s)')
+
