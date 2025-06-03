@@ -163,13 +163,13 @@ time = max_cycles / 850e6 # cycles / clock freq in (s)
 
 print("\nTotal FLOPs: ", flops)
 print("Total Cells: ", cells)
-print(f'Global Throughput: {flops / time:.2e} (FLOP/s)')
-print(f'                   {cells / time:.2e} (Cell/s)')
+print(f'GFlop/s: {flops / time * 10e-9:.2e} (TOTAL)' )
+print(f'GStencil/s: {cells / time * 10e-9} (TOTAL)')
 
 tile_flops = flops/(h*w)
 tile_cells = cells/(h*w)
 print("\nFLOPs per Tile: ", tile_flops)
 print("Cells per Tile: ", tile_cells)
-print(f'Tile Throughput: {tile_flops / time:.2e} (FLOP/s)')
-print(f'                 {tile_cells / time:.2e} (Cell/s)')
+print(f'GFlop/s: {tile_flops / time * 10e-9:.2e}')
+print(f'GStencil/s: {tile_cells / time * 10e-9}')
 
