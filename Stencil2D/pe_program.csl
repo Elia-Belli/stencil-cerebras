@@ -1,14 +1,17 @@
+
+const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
+const layout_mod = @import_module("<layout>");
+const timestamp_mod = @import_module("<time>");
+
 param memcpy_params: comptime_struct;
 
 // pe parameters  
-param pe_x: i16;
-param pe_y: i16;
-param kernel_dim_x: i16;
-param kernel_dim_y: i16;
-
-param M: i32; // local matrix rows
-param N: i32; // local matrix cols
+param width: i16;
+param height: i16;
 param iterations: i32;
+
+param M: i16; // local matrix rows
+param N: i16; // local matrix cols
 
 // Colors
 param send_east_color: color;
@@ -58,28 +61,27 @@ const east_id : local_task_id = @get_local_task_id(13);
 const west_id : local_task_id = @get_local_task_id(14);
 const wait_send_task_id : local_task_id = @get_local_task_id(15);
 
-// modules
-const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
-const timestamp = @import_module("<time>");
-
-
 //////////////////////////////////////////////////
 //        48 kB of global memory                //    
 //////////////////////////////////////////////////
 
+var idx: i16;
+var idy: i16;
+var n_sides: i8;
+
 const n: i32 = (M+2)*(N+2);
-var A     = @zeros([n]f32); // A is stored row major (change to col major for efficiency if needed)
+var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
-//var coeff = @zeros([5]f32); TODO: memcpy coefficients
-//pointers 
+const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0}; // TODO: set with memcpyH2D
+
+// pointers 
 var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
 var temp:       [*]f32;
-const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0}; // TODO: set with memcpyH2D
-const n_sides = comptime sides();
+
 // timestamps
-var tsc_end_buf = @zeros([timestamp.tsc_size_words]u16);
-var tsc_start_buf = @zeros([timestamp.tsc_size_words]u16);
+var tsc_end_buf = @zeros([timestamp_mod.tsc_size_words]u16);
+var tsc_start_buf = @zeros([timestamp_mod.tsc_size_words]u16);
 var timer_buf = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
@@ -101,25 +103,30 @@ const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
   .output_queue = send_south_oq
 });
 
-
+// Functions
 fn sides() i8 {
 
-  if( ((pe_x == 0)               and (pe_y == 0))               or
-      ((pe_x == 0)               and (pe_y == kernel_dim_y -1)) or
-      ((pe_x == kernel_dim_x -1) and (pe_y == 0))               or
-      ((pe_x == kernel_dim_x -1) and (pe_y == kernel_dim_y -1))) {
-    return 2;   // corner have 2 neighbors
-  }else if( (pe_x == 0) or (pe_y == 0) or
-            (pe_x == kernel_dim_x -1)  or
-            (pe_y == kernel_dim_y -1)) {
-    return 3;  // edges have 3 neighbors
-  }else{ return 4;} // inner have 4 neighbors
+  if(width == 1 and height == 1) return 0;
+  
+  idx = @as(i16, layout_mod.get_x_coord());
+  idy = @as(i16, layout_mod.get_y_coord());
+
+  if( ((idx == 0)        and (idy == 0))         or
+      ((idx == 0)        and (idy == height -1)) or
+      ((idx == width -1) and (idy == 0))         or
+      ((idx == width -1) and (idy == height -1))) {
+    return 2;       // corners have 2 
+  }else if( (idx == 0) or (idy == 0) or
+            (idx == width  -1)       or
+            (idy == height -1)) {
+    return 3;       // edges have 3 
+  }else{ return 4;} // inner have 4 
 
 }
 
 fn final_tsc() void {
-  timestamp.get_timestamp(&tsc_end_buf);
-  timestamp.disable_tsc();
+  timestamp_mod.get_timestamp(&tsc_end_buf);
+  timestamp_mod.disable_tsc();
   var lo_: u16 = 0;
   var hi_: u16 = 0;
   var word: u32 = 0;
@@ -143,38 +150,37 @@ fn final_tsc() void {
 
 // SEND
 fn send_halo() void {
-  
-  send_completed = 0; // reset counter
+
   if(iter == 0) {
-    timestamp.enable_tsc();
-    timestamp.get_timestamp(&tsc_start_buf);
+    n_sides = sides();
+    timestamp_mod.enable_tsc();
+    timestamp_mod.get_timestamp(&tsc_start_buf);
   }
 
-  var buf_east_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[2*(N+2)-2],
-                                  .stride = @as(i16, N+2), .extent = M});
-  var buf_west_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i16, N+2), .extent = M});
-  var buf_north_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)+1],
-                                  .stride = @as(i16, 1), .extent = N});
-  var buf_south_out_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],
-                                  .stride = @as(i16, 1), .extent = N});
+  send_completed = 0; // reset counter
 
-  if(pe_x == 0){
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(pe_x == kernel_dim_x -1) {
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
+  // halo DSDs
+  var east_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(2*N)+2],   .stride = N+2, .extent = M});
+  var west_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = N+2, .extent = M});
+  var north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = 1,   .extent = N});
+  var south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],.stride = 1,   .extent = N});
+
+  if(idx == 0){
+    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
+  }else if(idx == width -1) {
+    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
   }else{
-    @fmovs(east_out_dsd, buf_east_out_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, buf_west_out_dsd, .{ .async = true, .activate = west_id});  // send west
+    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
+    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
   }
   
-  if(pe_y == 0){
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(pe_y == kernel_dim_y -1){
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
+  if(idy == 0){
+    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
+  }else if(idy == height -1){
+    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
   }else{
-    @fmovs(north_out_dsd, buf_north_out_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, buf_south_out_dsd,.{ .async = true, .activate = south_id});  // send south
+    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
   }
   
 }
@@ -187,10 +193,10 @@ task east_end() void { send_completed += 1; }
 task west_end() void { send_completed += 1; }
 
 // RECV
-var left_count: i32 = 0;
-var right_count: i32 = 0;
-var north_count: i32 = 0;
-var south_count: i32 = 0;
+var left_count: i16 = 0;
+var right_count: i16 = 0;
+var north_count: i16 = 0;
+var south_count: i16 = 0;
 
 task recv_west(data:f32) void{
   left_count += 1;
@@ -236,14 +242,14 @@ task recv_south(data:f32) void{
   }
 }
 
-// completed recv callback --> complete all to start COMPUTE
+// completed recv callback --> complete all & wait for sends to finisg
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
   if(recv_completed == n_sides) @activate(wait_send_task_id);
 }
 
-// wait for all sends to finish --> NEXT ITER
+// wait for all sends to finish --> COMPUTE
 task wait_send() void {
   if(send_completed == n_sides) { @activate(stencil_task_id);}
   else { @activate(wait_send_task_id); }
@@ -267,10 +273,8 @@ task stencil() void {
     aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
   }
 
-  var aux_col_dsd = @get_dsd(mem1d_dsd, 
-    .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M}); // current col
-  var a_col_dsd   = @get_dsd(mem1d_dsd,
-    .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});  // left col
+  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M});  // current col
+  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});      // left col
 
   for (@range(i16, N)) |_| {
 
@@ -330,7 +334,6 @@ comptime {
     @initialize_queue(recv_west_iq, .{ .color = recv_west_color });
     @initialize_queue(recv_north_iq, .{ .color = recv_north_color });
     @initialize_queue(recv_south_iq, .{ .color = recv_south_color });
-
   }
 
   @export_symbol(A_ptr, "A");

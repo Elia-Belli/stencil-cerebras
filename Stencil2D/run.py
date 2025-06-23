@@ -14,9 +14,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--name', help="the test compile output dir")
 parser.add_argument('--cmaddr', help="IP:port for CS system")
 parser.add_argument("--verify", action="store_true", help="Verify Y computation")
+parser.add_argument("--verbose", action="store_true", help="Print computation details")
+parser.add_argument("--traces", action="store_true", help="Capture Fabric Traces")
+
 args = parser.parse_args()
 
 verify = args.verify
+verbose = args.verbose
+suppress_traces = not args.traces
 
 # Get matrix dimensions from compile metadata
 with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
@@ -24,28 +29,31 @@ with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
 
 w = int(compile_data['params']['kernel_dim_x'])
 h = int(compile_data['params']['kernel_dim_y'])
-
 N = int(compile_data['params']['N'])
 M = int(compile_data['params']['M'])
-
 iterations = int(compile_data['params']['iterations'])
-print(f"\nSimulation Info\n  rows: {M}\n  cols: {N}\n  iterations: {iterations}\
-      \n\nFabric Info\n  width: {w}\n  height: {h}\n")
+
+
 
 # Construct A
 np.random.seed(0)
-A = (np.random.rand(N*M) * 10).astype(np.float32)
-
-M_per_PE = M // h
-N_per_PE = N // w
+A = (np.random.rand(M,N) * 10).astype(np.float32)
+pad_x, pad_y = 0, 0
+if (M % h != 0): pad_x = h - (M%h)
+if (N % w != 0): pad_y = w - (N%w)
+A_padded = np.pad(A, [(0,pad_x), (0,pad_y)], mode="constant").ravel()
+pe_M = (M + pad_x) // h
+pe_N = (N + pad_y) // w
 halo = 1
-tiled_shape = (M_per_PE + 2*halo, N_per_PE + 2*halo)
-elements_per_PE = (M_per_PE + 2*halo) * (N_per_PE + 2*halo)
+tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
+elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
-y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
+print(elements_per_PE)
 
 # Construct a runner using SdkRuntime
-runner = SdkRuntime(args.name, cmaddr=args.cmaddr, suppress_simfab_trace=True, simfab_numthreads=8)
+runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
+                    suppress_simfab_trace=suppress_traces, 
+                    simfab_numthreads=8)
 
 # Get symbols
 A_symbol = runner.get_id('A')
@@ -55,7 +63,7 @@ symbol_maxmin_time = runner.get_id("maxmin_time")
 runner.load()
 runner.run()
 
-A_prepared = A.reshape(w, M_per_PE, h, N_per_PE).transpose(0, 2, 1, 3)
+A_prepared = A_padded.reshape(w, pe_M, h, pe_N).transpose(0, 2, 1, 3)
 A_prepared = np.pad(A_prepared, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
@@ -66,14 +74,15 @@ print("DONE!")
 print("Starting Computation...")
 
 if verify:
+  y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
   runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
     order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
   print("DONE!")
-  print("Copying back result...")
+  print("Copying back y_result...")
 
   y_result = y_result.reshape(w, h, *tiled_shape)
   y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
-
+  y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
 data = np.zeros((w*h*3), dtype=np.uint32)
 runner.memcpy_d2h(data, symbol_maxmin_time, 0, 0, w, h, 3,
@@ -91,15 +100,15 @@ print("DONE!\n")
 # ##      Check Result      ##
 # ############################
 if verify:
-  print("Verifying result\n")
+  print("Verifying y_result")
   y = np.zeros(M*N, dtype=np.float32)
   temp = np.zeros(M*N, dtype=np.float32)
   y_aux = np.zeros(M*N, dtype=np.float32)
   y_expected = np.zeros(M*N, dtype=np.float32)
 
-  y = A.copy()
+  y = A.ravel()
 
-  # calculating host result
+  # calculating host y_result
   for _ in range(iterations):
     for i in range(M):
       for j in range(N):
@@ -116,19 +125,20 @@ if verify:
 
   y_expected = y.copy()    
 
-  print(f'Input:\n{A.reshape(M,N)}\n')
-  #print(f'{y_expected.reshape(M,N)}\n')  
-  print(f'Output:\n{y_result.reshape(M,N)}\n')  
+  if(verbose):
+    print(f'Input:\n{A.reshape(M,N)}\n')
+    print(f'Expected:\n{y_expected.reshape(M,N)}\n')  
+    print(f'Output:\n{y_result.reshape(M,N)}\n')  
 
-  with open("./out/output/wse_result.txt", "w+") as f:
-    for i in y_result.ravel():
+  with open("./out/output/wse_y_result.txt", "w+") as f:
+    for i in y_result:
       print(f'{i}', file=f)  
 
   with open("./out/output/py_result.txt", "w+") as f:
     for i in y_expected:
       print(f'{i}', file=f)  
 
-  np.testing.assert_allclose(y_result.ravel(), y_expected, atol=0, rtol=0)
+  np.testing.assert_allclose(y_result, y_expected, atol=0, rtol=0)
   print("SUCCESS!\n")
 
 
@@ -152,24 +162,21 @@ for x in range(w):
       max_w = x
       max_h = y
 
-print("Cycle Counts:")
-print("Min cycles (", min_w, ", ", min_h, "): ", min_cycles)
-print("Max cycles (", max_w, ", ", max_h, "): ", max_cycles)
-
-
 flops = (M*N) * 5 * 2 * iterations  # 5 fmac (2 flops) per f32 at each iteration
 cells = (M*N) * iterations
 time = max_cycles / 850e6 # cycles / clock freq in (s)
-
-print("\nTotal FLOPs: ", flops)
-print("Total Cells: ", cells)
-print(f'GFlop/s: {flops / time * 10e-9:.2e} (TOTAL)' )
-print(f'GStencil/s: {cells / time * 10e-9} (TOTAL)')
-
-tile_flops = flops/(h*w)
 tile_cells = cells/(h*w)
-print("\nFLOPs per Tile: ", tile_flops)
-print("Cells per Tile: ", tile_cells)
-print(f'GFlop/s: {tile_flops / time * 10e-9:.2e}')
-print(f'GStencil/s: {tile_cells / time * 10e-9}')
+GStencil = cells / time * 10e-9
 
+if(verbose):
+  print("Cycle Counts:")
+  print("Min cycles (", min_w, ", ", min_h, "): ", min_cycles)
+  print("Max cycles (", max_w, ", ", max_h, "): ", max_cycles)
+
+  print("Total Cells: ", cells)
+  print(f'GStencil/s: {cells / time * 10e-9} (TOTAL)')
+
+
+# print y_results to file
+with open("run_test_log.csv", "a") as f:
+  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles}', file=f)
