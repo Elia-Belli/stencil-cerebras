@@ -56,8 +56,8 @@ layout {
   @set_rectangle(kernel_dim_x, kernel_dim_y);
 
   // Comptime assertions
-  @comptime_assert(kernel_dim_x > 0, "kernel_dim_x must be greater than 0");
-  @comptime_assert(kernel_dim_y > 0, "kernel_dim_y must be greater than 0");
+  @comptime_assert(kernel_dim_x > 1, "kernel_dim_x must be greater than 1");
+  @comptime_assert(kernel_dim_y > 1, "kernel_dim_y must be greater than 1");
   @comptime_assert(M > 0, "M must be greater than 0");
   @comptime_assert(N > 0, "N must be greater than 0");
   @comptime_assert(iterations > 0, "iterations must be greater than 0");
@@ -68,6 +68,8 @@ layout {
 
   const pe_M = (M + pad_x) / kernel_dim_y; 
   const pe_N = (N + pad_y) / kernel_dim_x;
+
+  @comptime_assert(pe_M * pe_N <= 5329, "The number of elements per cores can't exceed 5041 per core");
 
   const common_params = .{
     .width = kernel_dim_x,

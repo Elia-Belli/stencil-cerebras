@@ -1,27 +1,17 @@
 #!/usr/bin/env cs_python
 
-import argparse
 import json
 import numpy as np
 import math
+
+from utils import read_args
 
 from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
 from cerebras.sdk import sdk_utils # type: ignore # pylint: disable=no-name-in-module
 
 
 # Read arguments
-parser = argparse.ArgumentParser()
-parser.add_argument('--name', help="the test compile output dir")
-parser.add_argument('--cmaddr', help="IP:port for CS system")
-parser.add_argument("--verify", action="store_true", help="Verify Y computation")
-parser.add_argument("--verbose", action="store_true", help="Print computation details")
-parser.add_argument("--traces", action="store_true", help="Capture Fabric Traces")
-
-args = parser.parse_args()
-
-verify = args.verify
-verbose = args.verbose
-suppress_traces = not args.traces
+args, verify, verbose, suppress_traces = read_args()
 
 # Get matrix dimensions from compile metadata
 with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
@@ -32,7 +22,6 @@ h = int(compile_data['params']['kernel_dim_y'])
 N = int(compile_data['params']['N'])
 M = int(compile_data['params']['M'])
 iterations = int(compile_data['params']['iterations'])
-
 
 
 # Construct A
@@ -48,12 +37,11 @@ halo = 1
 tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
 elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
-print(elements_per_PE)
-
 # Construct a runner using SdkRuntime
 runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
                     suppress_simfab_trace=suppress_traces, 
-                    simfab_numthreads=8)
+                    simfab_numthreads=8,
+                    msg_level = "INFO")
 
 # Get symbols
 A_symbol = runner.get_id('A')
@@ -67,7 +55,7 @@ A_prepared = A_padded.reshape(w, pe_M, h, pe_N).transpose(0, 2, 1, 3)
 A_prepared = np.pad(A_prepared, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
-print("Copying A onto Device...")
+print("\nCopying A onto Device...")
 
 runner.launch('compute', nonblock=False)
 print("DONE!")
@@ -130,11 +118,11 @@ if verify:
     print(f'Expected:\n{y_expected.reshape(M,N)}\n')  
     print(f'Output:\n{y_result.reshape(M,N)}\n')  
 
-  with open("./out/output/wse_y_result.txt", "w+") as f:
+  with open("./logs/wse_result.txt", "w+") as f:
     for i in y_result:
       print(f'{i}', file=f)  
 
-  with open("./out/output/py_result.txt", "w+") as f:
+  with open("./logs/py_result.txt", "w+") as f:
     for i in y_expected:
       print(f'{i}', file=f)  
 
@@ -178,5 +166,5 @@ if(verbose):
 
 
 # print y_results to file
-with open("run_test_log.csv", "a") as f:
+with open("./logs/run_test_log.csv", "a") as f:
   print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles}', file=f)

@@ -34,7 +34,7 @@ int main()
     A_aux = temp;
   }
 
-  FILE* fp = fopen("./out/output/c_result.txt","w+");
+  FILE* fp = fopen("./logs/c_result.txt","w+");
   for(int i = 0; i < M; i++){
     for(int j = 0; j < N; j++){
       printf("%f ", A[i*N +j]);
