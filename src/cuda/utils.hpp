@@ -7,11 +7,11 @@
 
 using namespace std;
 
-void readCSV(string filename, float* buff, int rows, int cols);
-void printMatrix(float *grid, int rows, int cols);
+inline void readCSV(string filename, float* buff, int rows, int cols);
+inline void printMatrix(float *grid, int rows, int cols);
 
 
-void readCSV(string filename, float* buff, int rows, int cols) {
+inline void readCSV(string filename, float* buff, int rows, int cols) {
     ifstream file(filename);
 
     if (!file.is_open()) {
@@ -36,7 +36,7 @@ void readCSV(string filename, float* buff, int rows, int cols) {
     file.close();
 }
 
-void printMatrix(float *grid, int rows, int cols){
+inline void printMatrix(float *grid, int rows, int cols){
     int i, j;
     for(i = 0; i < rows; ++i){
         for(j = 0; j < cols; ++j){
@@ -44,6 +44,5 @@ void printMatrix(float *grid, int rows, int cols){
         }
         cout << endl;
     }
-
     cout << endl;
 }

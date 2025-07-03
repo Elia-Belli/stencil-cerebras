@@ -9,11 +9,10 @@ from utils import read_args
 from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
 from cerebras.sdk import sdk_utils # type: ignore # pylint: disable=no-name-in-module
 
-
 # Read arguments
 args, verify, verbose, suppress_traces = read_args()
 
-# Get matrix dimensions from compile metadata
+# Get parameters from compile metadata
 with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
   compile_data = json.load(json_file)
 
@@ -37,6 +36,8 @@ halo = 1
 tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
 elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
+coefficients = np.array([1.0, 1.0, 1.0, 1.0, -4.0], dtype=np.float32)
+
 # Construct a runner using SdkRuntime
 runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
                     suppress_simfab_trace=suppress_traces, 
@@ -45,22 +46,33 @@ runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
 
 # Get symbols
 A_symbol = runner.get_id('A')
+coeff_symbol = runner.get_id('c')
 symbol_maxmin_time = runner.get_id("maxmin_time")
 
 # Load and run the program
 runner.load()
 runner.run()
 
+# Load matrix
 A_prepared = A_padded.reshape(w, pe_M, h, pe_N).transpose(0, 2, 1, 3)
 A_prepared = np.pad(A_prepared, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("\nCopying A onto Device...")
 
+# Load coefficients
+c_tiled = np.tile(coefficients, w*h)
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+print("DONE!")
+print("Loading coefficients...")
+
+# Launch program
 runner.launch('compute', nonblock=False)
 print("DONE!")
 print("Starting Computation...")
 
+# Retrieve result for correctness check
 if verify:
   y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
   runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
@@ -72,6 +84,7 @@ if verify:
   y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
   y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
+# Retrieve timings
 data = np.zeros((w*h*3), dtype=np.uint32)
 runner.memcpy_d2h(data, symbol_maxmin_time, 0, 0, w, h, 3,
   streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)

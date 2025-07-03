@@ -72,11 +72,12 @@ var n_sides: i8;
 const n: i32 = (M+2)*(N+2);
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
-const coeff = [5]f32 {1.0, 1.0, 1.0, 1.0, -4.0}; // TODO: set with memcpyH2D
+var coeff = @zeros([5]f32);
 
 // pointers 
 var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
+var coeff_ptr: [*]f32 = &coeff;
 var temp:       [*]f32;
 
 // timestamps
@@ -337,6 +338,7 @@ comptime {
   }
 
   @export_symbol(A_ptr, "A");
+  @export_symbol(coeff_ptr, "c");
   @export_symbol(send_halo, "compute");
   @export_symbol(ptr_timer_buf, "maxmin_time");
 }

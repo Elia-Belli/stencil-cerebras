@@ -179,6 +179,7 @@ layout {
   
   // export symbol names
   @export_name("A", [*]f32, true);
+  @export_name("c", [*]f32, true);
   @export_name("compute", fn()void);
 
   @export_name("maxmin_time", [*]f32, true);
