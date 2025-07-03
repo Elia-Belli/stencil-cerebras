@@ -88,13 +88,10 @@ print("DONE!\n")
 # ##      Check Result      ##
 # ############################
 if verify:
-  print("Verifying y_result")
-  y = np.zeros(M*N, dtype=np.float32)
-  temp = np.zeros(M*N, dtype=np.float32)
+  print("Checking Result")
+  y = A.ravel()
   y_aux = np.zeros(M*N, dtype=np.float32)
   y_expected = np.zeros(M*N, dtype=np.float32)
-
-  y = A.ravel()
 
   # calculating host y_result
   for _ in range(iterations):
@@ -106,10 +103,7 @@ if verify:
         y_aux[i*N+j] -= 4.0*y[i*N+j]
         if(j+1 < N) : y_aux[i*N+j] += y[i*N+j+1]
 
-
-    temp = y.copy()
-    y = y_aux.copy()
-    y_aux = temp.copy()
+    y, y_aux = y_aux, y
 
   y_expected = y.copy()    
 
