@@ -2,6 +2,7 @@
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 const layout_mod = @import_module("<layout>");
 const timestamp_mod = @import_module("<time>");
+const utils = @import_module("my_utils.csl", .{.width = width, .height = height});
 
 param memcpy_params: comptime_struct;
 
@@ -104,26 +105,7 @@ const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
   .output_queue = send_south_oq
 });
 
-// Functions
-fn sides() i8 {
-
-  if(width == 1 and height == 1) return 0;
-  
-  idx = @as(i16, layout_mod.get_x_coord());
-  idy = @as(i16, layout_mod.get_y_coord());
-
-  if( ((idx == 0)        and (idy == 0))         or
-      ((idx == 0)        and (idy == height -1)) or
-      ((idx == width -1) and (idy == 0))         or
-      ((idx == width -1) and (idy == height -1))) {
-    return 2;       // corners have 2 
-  }else if( (idx == 0) or (idy == 0) or
-            (idx == width  -1)       or
-            (idy == height -1)) {
-    return 3;       // edges have 3 
-  }else{ return 4;} // inner have 4 
-
-}
+// Utils Functions
 
 fn final_tsc() void {
   timestamp_mod.get_timestamp(&tsc_end_buf);
@@ -149,14 +131,20 @@ fn final_tsc() void {
 //                PROGRAM                    //
 ///////////////////////////////////////////////
 
+fn init() void {
+
+  idx = @as(i16, layout_mod.get_x_coord());
+  idy = @as(i16, layout_mod.get_y_coord());
+  n_sides = utils.sides(idx, idy);
+
+  timestamp_mod.enable_tsc();
+  timestamp_mod.get_timestamp(&tsc_start_buf);
+
+  send_halo();  // start compute
+}
+
 // SEND
 fn send_halo() void {
-
-  if(iter == 0) {
-    n_sides = sides();
-    timestamp_mod.enable_tsc();
-    timestamp_mod.get_timestamp(&tsc_start_buf);
-  }
 
   send_completed = 0; // reset counter
 
@@ -339,6 +327,6 @@ comptime {
 
   @export_symbol(A_ptr, "A");
   @export_symbol(coeff_ptr, "c");
-  @export_symbol(send_halo, "compute");
+  @export_symbol(init, "compute");
   @export_symbol(ptr_timer_buf, "maxmin_time");
 }

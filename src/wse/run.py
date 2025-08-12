@@ -159,7 +159,7 @@ for x in range(w):
 
 flops = (M*N) * 5 * 2 * iterations  # 5 fmac (2 flops) per f32 at each iteration
 cells = (M*N) * iterations
-time = max_cycles / 850e6 # cycles / clock freq in (s)
+time = max_cycles / 875e6
 tile_cells = cells/(h*w)
 GStencil = cells / time * 10e-9
 
