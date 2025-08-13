@@ -19,7 +19,7 @@ M:$inp_rows,N:$inp_cols,iterations:$iterations \
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, iterations: $iterations"
 
-    cs_python ./src/wse/run.py --name out --verify #--verbose --traces
+    cs_python ./src/wse/run.py --name out --arch=$arch --verify #--verbose --traces
 }
 
 # If script is sourced, don't auto-run

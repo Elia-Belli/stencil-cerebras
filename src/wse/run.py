@@ -4,7 +4,7 @@ import json
 import numpy as np
 import math
 
-from utils import read_args
+from utils import read_args, prepare_input, cpu_stencil
 
 from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
 from cerebras.sdk import sdk_utils # type: ignore # pylint: disable=no-name-in-module
@@ -23,20 +23,22 @@ M = int(compile_data['params']['M'])
 iterations = int(compile_data['params']['iterations'])
 
 
-# Construct A
+# Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
+halo = 1
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
 if (N % w != 0): pad_y = w - (N%w)
-A_padded = np.pad(A, [(0,pad_x), (0,pad_y)], mode="constant").ravel()
 pe_M = (M + pad_x) // h
 pe_N = (N + pad_y) // w
-halo = 1
 tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
 elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
+
+# Stencil
 coefficients = np.array([1.0, 1.0, 1.0, 1.0, -4.0], dtype=np.float32)
+c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
 runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
@@ -54,14 +56,12 @@ runner.load()
 runner.run()
 
 # Load matrix
-A_prepared = A_padded.reshape(w, pe_M, h, pe_N).transpose(0, 2, 1, 3)
-A_prepared = np.pad(A_prepared, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
+A_prepared = prepare_input(A, M, N, h, w, halo)
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("\nCopying A onto Device...")
 
 # Load coefficients
-c_tiled = np.tile(coefficients, w*h)
 runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("DONE!")
@@ -102,23 +102,8 @@ print("DONE!\n")
 # ############################
 if verify:
   print("Checking Result")
-  y = A.ravel()
-  y_aux = np.zeros(M*N, dtype=np.float32)
-  y_expected = np.zeros(M*N, dtype=np.float32)
 
-  # calculating host y_result
-  for _ in range(iterations):
-    for i in range(M):
-      for j in range(N):
-        if(i-1 >= 0): y_aux[i*N+j] += y[(i-1)*N+j]
-        if(i+1 < M) : y_aux[i*N+j] += y[(i+1)*N+j]
-        if(j-1 >= 0): y_aux[i*N+j] += y[i*N+j-1]
-        y_aux[i*N+j] -= 4.0*y[i*N+j]
-        if(j+1 < N) : y_aux[i*N+j] += y[i*N+j+1]
-
-    y, y_aux = y_aux, y
-
-  y_expected = y.copy()    
+  y_expected = cpu_stencil(A, M, N, iterations)
 
   if(verbose):
     print(f'Input:\n{A.reshape(M,N)}\n')
@@ -129,7 +114,7 @@ if verify:
     for i in y_result:
       print(f'{i}', file=f)  
 
-  with open("./logs/py_result.txt", "w+") as f:
+  with open("./logs/cpu_result.txt", "w+") as f:
     for i in y_expected:
       print(f'{i}', file=f)  
 
@@ -174,4 +159,4 @@ if(verbose):
 
 # print y_results to file
 with open("./logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles}', file=f)
+  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles},{args.arch}', file=f)
