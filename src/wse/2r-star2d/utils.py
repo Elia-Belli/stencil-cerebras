@@ -30,23 +30,37 @@ def prepare_input(input, input_m, input_n, fabric_x, fabric_y, halo):
   pe_N = (input_n + pad_y) // fabric_x
 
   A_reshaped = A_padded.reshape(fabric_x, pe_M, fabric_y, pe_N).transpose(0, 2, 1, 3)
-  A_prepared = np.pad(A_reshaped, ((0, 0), (0, 0), (halo, halo), (halo, halo)), mode='constant', constant_values=0).ravel()
 
-  return A_prepared
+  return A_reshaped.ravel()
 
-def cpu_stencil(A, m, n, iters):
+
+def cpu_stencil_2r(A, m, n, c, iters):
   y = A.ravel()
   y_aux = np.zeros(m*n, dtype=np.float32)
 
   for _ in range(iters):
+    y_aux.fill(0.0)  # reset before accumulation
+
     for i in range(m):
       for j in range(n):
-        if(i-1 >= 0): y_aux[i*n+j] += y[(i-1)*n+j]
-        if(i+1 < m) : y_aux[i*n+j] += y[(i+1)*n+j]
-        if(j-1 >= 0): y_aux[i*n+j] += y[i*n+j-1]
-        y_aux[i*n+j] -= 4.0*y[i*n+j]
-        if(j+1 < n) : y_aux[i*n+j] += y[i*n+j+1]
+        idx = i*n +j
+        # center
+        y_aux[idx] += c[4] *y[i*n+j]
+        
+        # north
+        if(i-2 >= 0): y_aux[idx] += c[0] * y[(i-2)*n+j]
+        if(i-1 >= 0): y_aux[idx] += c[1] * y[(i-1)*n+j]
+        # south
+        if(i+2 < m) : y_aux[idx] += c[8] * y[(i+2)*n+j]
+        if(i+1 < m) : y_aux[idx] += c[7] * y[(i+1)*n+j]
+
+        # west
+        if(j-2 >= 0) : y_aux[idx] += c[2] * y[i*n+j-2]
+        if(j-1 >= 0): y_aux[idx] += c[3] * y[i*n+j-1]
+        # east
+        if(j+2 < m) : y_aux[idx] += c[6] * y[i*n+j+2]
+        if(j+1 < n) : y_aux[idx] += c[5] * y[i*n+j+1]
 
     y, y_aux = y_aux, y
 
-  return y  
+  return y 

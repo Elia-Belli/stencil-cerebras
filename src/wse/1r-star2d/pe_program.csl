@@ -1,0 +1,332 @@
+
+const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
+const layout_mod = @import_module("<layout>");
+const timestamp_mod = @import_module("<time>");
+const utils = @import_module("my_utils.csl", .{.width = width, .height = height});
+
+param memcpy_params: comptime_struct;
+
+// pe parameters  
+param width: i16;
+param height: i16;
+param iterations: i32;
+
+param M: i16; // local matrix rows
+param N: i16; // local matrix cols
+
+// Colors
+param send_east_color: color;
+param recv_west_color: color;
+param send_west_color: color;
+param recv_east_color: color;
+
+param send_north_color: color;
+param recv_south_color: color;
+param send_south_color: color;
+param recv_north_color: color;
+
+// Queues IDs
+// These input queues are bound to tasks for WSE-3,
+// so they do not have associated microthreaded operations
+const recv_east_iq = @get_input_queue(2);
+const recv_west_iq = @get_input_queue(3);
+const recv_north_iq = @get_input_queue(4);
+const recv_south_iq = @get_input_queue(5);
+
+// These queues are used in microthreaded operations on both WSE-2 and WSE-3
+const send_east_oq = @get_output_queue(2);
+const send_west_oq = @get_output_queue(3);
+const send_north_oq = @get_output_queue(4);
+const send_south_oq = @get_output_queue(5);
+
+// Task IDs
+// On WSE-2, data task IDs are created from colors; on WSE-3, from input queues
+const recv_east_task_id : data_task_id =
+  if      (@is_arch("wse2")) @get_data_task_id(recv_east_color)
+  else if (@is_arch("wse3")) @get_data_task_id(recv_east_iq);
+const recv_west_task_id : data_task_id =
+  if      (@is_arch("wse2")) @get_data_task_id(recv_west_color)
+  else if (@is_arch("wse3")) @get_data_task_id(recv_west_iq);
+const recv_north_task_id : data_task_id =
+  if      (@is_arch("wse2")) @get_data_task_id(recv_north_color)
+  else if (@is_arch("wse3")) @get_data_task_id(recv_north_iq);
+const recv_south_task_id : data_task_id =
+  if      (@is_arch("wse2")) @get_data_task_id(recv_south_color)
+  else if (@is_arch("wse3")) @get_data_task_id(recv_south_iq);
+
+// Task ID for local tasks
+const stencil_task_id : local_task_id = @get_local_task_id(10);
+const north_id : local_task_id = @get_local_task_id(11);
+const south_id : local_task_id = @get_local_task_id(12);
+const east_id : local_task_id = @get_local_task_id(13);
+const west_id : local_task_id = @get_local_task_id(14);
+const wait_send_task_id : local_task_id = @get_local_task_id(15);
+
+//////////////////////////////////////////////////
+//        48 kB of global memory                //    
+//////////////////////////////////////////////////
+
+var idx: i16;
+var idy: i16;
+var n_sides: i8;
+
+const n: i32 = (M + 2)*(N + 2);
+var A     = @zeros([n]f32);
+var A_aux = @zeros([n]f32);
+var coeff = @zeros([9]f32);
+
+// pointers 
+var A_ptr:      [*]f32 = &A;
+var A_aux_ptr:  [*]f32 = &A_aux;
+var coeff_ptr: [*]f32 = &coeff;
+var temp:       [*]f32;
+
+// timestamps
+var tsc_end_buf = @zeros([timestamp_mod.tsc_size_words]u16);
+var tsc_start_buf = @zeros([timestamp_mod.tsc_size_words]u16);
+var timer_buf = @zeros([3]f32);
+var ptr_timer_buf: [*]f32 = &timer_buf;
+
+// DSDs
+const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
+  .fabric_color = send_east_color, 
+  .output_queue = send_east_oq
+});
+const west_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
+  .fabric_color = send_west_color,
+  .output_queue = send_west_oq
+});
+const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+  .fabric_color = send_north_color, 
+  .output_queue = send_north_oq
+});
+const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+  .fabric_color = send_south_color,
+  .output_queue = send_south_oq
+});
+
+// Utils Functions
+
+fn final_tsc() void {
+  timestamp_mod.get_timestamp(&tsc_end_buf);
+  timestamp_mod.disable_tsc();
+  var lo_: u16 = 0;
+  var hi_: u16 = 0;
+  var word: u32 = 0;
+
+  lo_ = tsc_start_buf[0];
+  hi_ = tsc_start_buf[1];
+  timer_buf[0] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+  lo_ = tsc_start_buf[2];
+  hi_ = tsc_end_buf[0];
+  timer_buf[1] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+
+  lo_ = tsc_end_buf[1];
+  hi_ = tsc_end_buf[2];
+  timer_buf[2] = @bitcast(f32, (@as(u32,hi_) << @as(u16,16)) | @as(u32, lo_) );
+}
+
+///////////////////////////////////////////////
+//                PROGRAM                    //
+///////////////////////////////////////////////
+
+fn init() void {
+
+  idx = @as(i16, layout_mod.get_x_coord());
+  idy = @as(i16, layout_mod.get_y_coord());
+  n_sides = utils.sides(idx, idy);
+
+  timestamp_mod.enable_tsc();
+  timestamp_mod.get_timestamp(&tsc_start_buf);
+
+  send_halo();  // start compute
+}
+
+// SEND
+fn send_halo() void {
+
+  send_completed = 0; // reset counter
+
+  // halo DSDs
+  var east_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(2*N)+2],   .stride = N+2, .extent = M});
+  var west_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = N+2, .extent = M});
+  var north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = 1,   .extent = N});
+  var south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],.stride = 1,   .extent = N});
+
+  if(idx == 0){
+    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
+  }else if(idx == width -1) {
+    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
+  }else{
+    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
+    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
+  }
+  
+  if(idy == 0){
+    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
+  }else if(idy == height -1){
+    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
+  }else{
+    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
+  }
+  
+}
+
+// completed send callbacks
+var send_completed: i8 = 0;
+task north_end() void { send_completed += 1; }
+task south_end() void { send_completed += 1; }
+task east_end() void { send_completed += 1; }
+task west_end() void { send_completed += 1; }
+
+// RECV
+var left_count: i16 = 0;
+var right_count: i16 = 0;
+var north_count: i16 = 0;
+var south_count: i16 = 0;
+
+task recv_west(data:f32) void{
+  left_count += 1;
+  A_ptr[(left_count)*(N+2)] = data;
+
+  if(left_count == M){
+    @block(recv_west_task_id);
+    left_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_east(data:f32) void{
+  right_count += 1;
+  A_ptr[(right_count+1)*(N+2)-1] = data;
+
+  if(right_count == M){
+    @block(recv_east_task_id);
+    right_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_north(data:f32) void{
+  north_count += 1;
+  A_ptr[north_count] = data;
+
+  if(north_count == N){
+    @block(recv_north_task_id);
+    north_count = 0;
+    recv_callback();
+  }
+}
+
+task recv_south(data:f32) void{
+  south_count += 1;
+  A_ptr[(N+2)*(M+1) + south_count] = data;
+
+  if(south_count == N){
+    @block(recv_south_task_id);
+    south_count = 0;
+    recv_callback();
+  }
+}
+
+// completed recv callback --> complete all & wait for sends to finisg
+var recv_completed: i8 = 0;
+fn recv_callback() void {
+  recv_completed += 1;
+  if(recv_completed == n_sides) @activate(wait_send_task_id);
+}
+
+// wait for all sends to finish --> COMPUTE
+task wait_send() void {
+  if(send_completed == n_sides) { @activate(stencil_task_id);}
+  else { @activate(wait_send_task_id); }
+}
+
+// COMPUTE
+var iter: i32 = 0;
+task stencil() void {
+
+  var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
+  var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
+
+  for (@range(i16, M)) |_| {
+
+    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[0]); // mult by north_coeff -> add upper row
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, 2*(N+2), f32);
+
+    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[1]); // mult by south_coeff -> add lower row
+    a_row_dsd = @increment_dsd_offset(a_row_dsd, -(N+2), f32);
+
+    aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
+  }
+
+  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M});  // current col
+  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});      // left col
+
+  for (@range(i16, N)) |_| {
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[2]); // mult by west_coeff -> add left column
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[4]); // mult by center_coeff -> add self
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
+
+    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]); // mult by east_coeff -> add right column
+    a_col_dsd = @increment_dsd_offset(a_col_dsd, -1, f32);
+
+    aux_col_dsd = @increment_dsd_offset(aux_col_dsd, 1, f32); // next col
+  }
+
+  temp  = A_ptr;
+  A_ptr = A_aux_ptr;
+  A_aux_ptr = temp;
+
+  recv_completed = 0;
+  @unblock(recv_north_task_id);
+  @unblock(recv_south_task_id);
+  @unblock(recv_west_task_id);
+  @unblock(recv_east_task_id);
+
+  iter += 1;
+  if(iter == iterations){
+    final_tsc();  // completion timestamp
+    sys_mod.unblock_cmd_stream();
+  }else{
+    send_halo();
+  }
+}
+
+comptime {
+  @bind_local_task(stencil, stencil_task_id);
+
+  @bind_local_task(east_end, east_id);
+  @bind_local_task(west_end, west_id);
+  @bind_local_task(north_end, north_id);
+  @bind_local_task(south_end, south_id);
+  @bind_local_task(wait_send, wait_send_task_id);
+
+  @bind_data_task(recv_west, recv_west_task_id);
+  @bind_data_task(recv_east, recv_east_task_id);
+  @bind_data_task(recv_north, recv_north_task_id);
+  @bind_data_task(recv_south, recv_south_task_id);
+
+  // On WSE-3, we must explicitly initialize input and output queues
+  if (@is_arch("wse3")) {
+    @initialize_queue(send_east_oq, .{ .color = send_east_color });
+    @initialize_queue(send_west_oq, .{ .color = send_west_color });
+    @initialize_queue(send_north_oq, .{ .color = send_north_color });
+    @initialize_queue(send_south_oq, .{ .color = send_south_color });
+    
+    @initialize_queue(recv_east_iq, .{ .color = recv_east_color });
+    @initialize_queue(recv_west_iq, .{ .color = recv_west_color });
+    @initialize_queue(recv_north_iq, .{ .color = recv_north_color });
+    @initialize_queue(recv_south_iq, .{ .color = recv_south_color });
+  }
+
+  @export_symbol(A_ptr, "A");
+  @export_symbol(coeff_ptr, "c");
+  @export_symbol(init, "compute");
+  @export_symbol(ptr_timer_buf, "maxmin_time");
+}

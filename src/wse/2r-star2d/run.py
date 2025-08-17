@@ -4,7 +4,7 @@ import json
 import numpy as np
 import math
 
-from utils import read_args, prepare_input, cpu_stencil
+from utils import *
 
 from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
 from cerebras.sdk import sdk_utils # type: ignore # pylint: disable=no-name-in-module
@@ -26,18 +26,19 @@ iterations = int(compile_data['params']['iterations'])
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
-halo = 1
+#A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+halo = 2
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
 if (N % w != 0): pad_y = w - (N%w)
 pe_M = (M + pad_x) // h
 pe_N = (N + pad_y) // w
-tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
-elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
+tiled_shape = (pe_M, pe_N)
+elements_per_PE = pe_M * pe_N
 
 
 # Stencil
-coefficients = np.array([1.0, 1.0, 1.0, 1.0, -4.0], dtype=np.float32)
+coefficients = np.array([0.0625, 0.0625, 0.0625, 0.0625, -1.0, 0.0625, 0.0625, 0.0625, 0.0625], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
@@ -62,7 +63,7 @@ runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=F
 print("\nCopying A onto Device...")
 
 # Load coefficients
-runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 9, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("DONE!")
 print("Loading coefficients...")
@@ -80,8 +81,7 @@ if verify:
   print("DONE!")
   print("Copying back y_result...")
 
-  y_result = y_result.reshape(w, h, *tiled_shape)
-  y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
+  y_result = y_result.reshape(w, h, *tiled_shape).transpose(0, 2, 1, 3)
   y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
 # Retrieve timings
@@ -103,22 +103,22 @@ print("DONE!\n")
 if verify:
   print("Checking Result")
 
-  y_expected = cpu_stencil(A, M, N, iterations)
+  y_expected = cpu_stencil_2r(A.copy(), M, N, coefficients, iterations)
 
   if(verbose):
     print(f'Input:\n{A.reshape(M,N)}\n')
     print(f'Expected:\n{y_expected.reshape(M,N)}\n')  
     print(f'Output:\n{y_result.reshape(M,N)}\n')  
 
-  with open("./logs/wse_result.txt", "w+") as f:
+  with open("../../../logs/wse_result.txt", "w+") as f:
     for i in y_result:
       print(f'{i}', file=f)  
 
-  with open("./logs/cpu_result.txt", "w+") as f:
+  with open("../../../logs/cpu_result.txt", "w+") as f:
     for i in y_expected:
       print(f'{i}', file=f)  
 
-  np.testing.assert_allclose(y_result, y_expected, atol=0, rtol=0)
+  np.testing.assert_allclose(y_result, y_expected, atol=10e-4)
   print("SUCCESS!\n")
 
 
@@ -142,9 +142,9 @@ for x in range(w):
       max_w = x
       max_h = y
 
-flops = (M*N) * 5 * 2 * iterations  # 5 fmac (2 flops) per f32 at each iteration
+flops = (M*N) * 9 * 2 * iterations
 cells = (M*N) * iterations
-time = max_cycles / 875e6
+time = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
 tile_cells = cells/(h*w)
 GStencil = cells / time * 10e-9
 
@@ -158,5 +158,5 @@ if(verbose):
 
 
 # print y_results to file
-with open("./logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles},{args.arch}', file=f)
+with open("../../../logs/run_test_log.csv", "a") as f:
+  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles},{args.arch},star-2r', file=f)
