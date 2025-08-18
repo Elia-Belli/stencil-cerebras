@@ -3,6 +3,7 @@ const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
 const layout_mod = @import_module("<layout>");
 const timestamp_mod = @import_module("<time>");
 const utils = @import_module("my_utils.csl", .{.width = width, .height = height});
+const simprint = @import_module("<simprint>");
 
 param memcpy_params: comptime_struct;
 
@@ -70,15 +71,23 @@ var idx: i16;
 var idy: i16;
 var n_sides: i8;
 
-const n: i32 = (M + 2)*(N + 2);
+const halo: i16 = 3;
+const n: i32 = M * N;
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
-var coeff = @zeros([9]f32);
+var coeff = @zeros([13]f32);
+
+// halo buffers
+var north_halo = @zeros([N * halo]f32);
+var south_halo = @zeros([N * halo]f32);
+var east_halo = @zeros([M * halo]f32);
+var west_halo = @zeros([M * halo]f32);
+
 
 // pointers 
 var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
-var coeff_ptr: [*]f32 = &coeff;
+var coeff_ptr:  [*]f32 = &coeff;
 var temp:       [*]f32;
 
 // timestamps
@@ -88,19 +97,19 @@ var timer_buf = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
 // DSDs
-const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
+const east_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M * halo,
   .fabric_color = send_east_color, 
   .output_queue = send_east_oq
 });
-const west_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M,
+const west_out_dsd = @get_dsd(fabout_dsd, .{ .extent = M * halo,
   .fabric_color = send_west_color,
   .output_queue = send_west_oq
 });
-const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N * halo,
   .fabric_color = send_north_color, 
   .output_queue = send_north_oq
 });
-const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N,
+const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N * halo,
   .fabric_color = send_south_color,
   .output_queue = send_south_oq
 });
@@ -148,11 +157,11 @@ fn send_halo() void {
 
   send_completed = 0; // reset counter
 
-  // halo DSDs
-  var east_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(2*N)+2],   .stride = N+2, .extent = M});
-  var west_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = N+2, .extent = M});
-  var north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = 1,   .extent = N});
-  var south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],.stride = 1,   .extent = N});
+  // edges DSDs
+  var east_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[N-halo], .stride = .{N, 1-N*(M-1)}, .extent = .{halo, M}}); // extent(i,j) stride(j,i)
+  var west_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[0],      .stride = .{N, 1-N*(M-1)}, .extent = .{halo, M}});
+  var north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[0],       .stride = 1, .extent = (halo*N)});
+  var south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(M-halo)*N], .stride = 1, .extent = (halo*N)});
 
   if(idx == 0){
     @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
@@ -178,20 +187,20 @@ fn send_halo() void {
 var send_completed: i8 = 0;
 task north_end() void { send_completed += 1; }
 task south_end() void { send_completed += 1; }
-task east_end() void { send_completed += 1; }
-task west_end() void { send_completed += 1; }
+task east_end()  void { send_completed += 1; }
+task west_end()  void { send_completed += 1; }
 
 // RECV
-var left_count: i16 = 0;
+var left_count:  i16 = 0;
 var right_count: i16 = 0;
 var north_count: i16 = 0;
 var south_count: i16 = 0;
 
 task recv_west(data:f32) void{
+  west_halo[left_count] = data;
   left_count += 1;
-  A_ptr[(left_count)*(N+2)] = data;
 
-  if(left_count == M){
+  if(left_count == (halo*M)){
     @block(recv_west_task_id);
     left_count = 0;
     recv_callback();
@@ -199,10 +208,10 @@ task recv_west(data:f32) void{
 }
 
 task recv_east(data:f32) void{
+  east_halo[right_count] = data;
   right_count += 1;
-  A_ptr[(right_count+1)*(N+2)-1] = data;
 
-  if(right_count == M){
+  if(right_count == (halo*M)){
     @block(recv_east_task_id);
     right_count = 0;
     recv_callback();
@@ -210,10 +219,10 @@ task recv_east(data:f32) void{
 }
 
 task recv_north(data:f32) void{
+  north_halo[north_count] = data;
   north_count += 1;
-  A_ptr[north_count] = data;
 
-  if(north_count == N){
+  if(north_count == (halo*N)){
     @block(recv_north_task_id);
     north_count = 0;
     recv_callback();
@@ -221,17 +230,17 @@ task recv_north(data:f32) void{
 }
 
 task recv_south(data:f32) void{
+  south_halo[south_count] = data;
   south_count += 1;
-  A_ptr[(N+2)*(M+1) + south_count] = data;
 
-  if(south_count == N){
+  if(south_count == (halo*N)){
     @block(recv_south_task_id);
     south_count = 0;
     recv_callback();
   }
 }
 
-// completed recv callback --> complete all & wait for sends to finisg
+// completed recv callback --> complete all & wait for sends to finish
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
@@ -248,43 +257,88 @@ task wait_send() void {
 var iter: i32 = 0;
 task stencil() void {
 
-  var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
-  var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
+  var north = @get_dsd(mem1d_dsd, .{.base_address = &north_halo[0], .extent = halo * N});
+  var south = @get_dsd(mem1d_dsd, .{.base_address = &south_halo[0], .extent = halo * N});
+  var west  = @get_dsd(mem1d_dsd, .{.base_address = &west_halo[0],  .extent = halo * M});
+  var east  = @get_dsd(mem1d_dsd, .{.base_address = &east_halo[0],  .extent = halo * M}); 
 
-  for (@range(i16, M)) |_| {
+  // center stencil 
+  var aux_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[0], .extent = (N*M)});
+  var a_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[0], .extent = (N*M)});
 
-    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[0]); // mult by north_coeff -> add upper row
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, 2*(N+2), f32);
+  @fmuls(aux_dsd, a_dsd, coeff[6]);
 
-    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[1]); // mult by south_coeff -> add lower row
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, -(N+2), f32);
-
-    aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
+  // north stencil
+  for(@range(i16, halo)) |r| {
+    aux_dsd = @set_dsd_length(aux_dsd, @as(u16,(halo-r)*N));
+    north = @get_dsd(mem1d_dsd, .{.base_address = &north_halo[r*N], .extent = @as(u16,(halo-r)*N)});
+    @fmacs(aux_dsd, aux_dsd, north, coeff[r]);
   }
 
-  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M});  // current col
-  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});      // left col
-
-  for (@range(i16, N)) |_| {
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[2]); // mult by west_coeff -> add left column
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[4]); // mult by center_coeff -> add self
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]); // mult by east_coeff -> add right column
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, -1, f32);
-
-    aux_col_dsd = @increment_dsd_offset(aux_col_dsd, 1, f32); // next col
+  for(@range(i16, halo)) |r| {
+    aux_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[(halo-r)*N], .extent = @as(u16,N*(M-halo+r))});
+    a_dsd   = @set_dsd_length(a_dsd, @as(u16,N*(M-halo+r)));
+    @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[r]);
   }
+  
+  // south stencil
+  for(@range(i16, halo)) |r| {
+    aux_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[(M-halo+r)*N], .extent = @as(u16,(halo-r)*N)});
+    south = @set_dsd_length(south, @as(u16,(halo-r)*N));
+    @fmacs(aux_dsd, aux_dsd, south, coeff[12-r]);
+  }
+
+  aux_dsd = @increment_dsd_offset(aux_dsd, -(M-1)*N, f32);
+  for(@range(i16, halo)) |r| {
+    aux_dsd = @set_dsd_length(aux_dsd, @as(u16,N*(M-halo+r)));
+    a_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(halo-r)*N], .extent = @as(u16,N*(M-halo+r))});
+    @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[12-r]);
+  }
+  
+  // west stencil
+  var aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{N,1-N*(M-1)}, .extent = .{halo,M}});
+  @fmacs(aux_col_dsd, aux_col_dsd, west, coeff[3]);
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{N,1-N*(M-1)}, .extent = .{halo-1,M}});
+  west =  @get_dsd(mem1d_dsd, .{.base_address = &west_halo[N], .extent = (halo-1)*N});
+  @fmacs(aux_col_dsd, aux_col_dsd, west, coeff[4]);
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{N,1-N*(M-1)}, .extent = .{halo-2,M}});
+  west =  @get_dsd(mem1d_dsd, .{.base_address = &west_halo[2*N], .extent = (halo-2)*N});
+  @fmacs(aux_col_dsd, aux_col_dsd, west, coeff[5]);
+
+  var a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[0], .stride = .{1,halo+1}, .extent = .{M,N-halo}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo], .stride = .{1,halo+1}, .extent = .{M,N-halo}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]);
+  a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[0], .stride = .{1,halo}, .extent = .{M,N-halo+1}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo-1], .stride = .{1,halo}, .extent = .{M,N-halo+1}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[4]);
+  a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[0], .stride = .{1,halo-1}, .extent = .{M,N-halo+2}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo-2], .stride = .{1,halo-1}, .extent = .{M,N-halo+2}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[5]);
+
+  // east stencil
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[N-halo], .stride = .{N,1-N*(M-1)}, .extent = .{halo,M}});
+  @fmacs(aux_col_dsd, aux_col_dsd, east, coeff[9]);
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[N-halo+1], .stride = .{N,1-N*(M-1)}, .extent = .{halo-1,M}});
+  east =  @set_dsd_length(east, (halo-1)*N);
+  @fmacs(aux_col_dsd, aux_col_dsd, east, coeff[8]);
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[N-halo+2], .stride = .{N,1-N*(M-1)}, .extent = .{halo-2,M}});
+  east =  @set_dsd_length(east, (halo-2)*N);
+  @fmacs(aux_col_dsd, aux_col_dsd, east, coeff[7]);
+
+  a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo], .stride = .{1,halo+1}, .extent = .{M,N-halo}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{1,halo+1}, .extent = .{M,N-halo}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[9]);
+  a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo-1], .stride = .{1,halo}, .extent = .{M,N-halo+1}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{1,halo}, .extent = .{M,N-halo+1}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[8]);
+  a_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo-2], .stride = .{1,halo-1}, .extent = .{M,N-halo+2}}); 
+  aux_col_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .stride = .{1,halo-1}, .extent = .{M,N-halo+2}});
+  @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[7]);
+
 
   temp  = A_ptr;
   A_ptr = A_aux_ptr;
   A_aux_ptr = temp;
-
-  const aux_dsd = @get_dsd(mem1d_dsd, .{.base_address= &A_aux_ptr[0], .extent= n});
-  @fmovs(aux_dsd, 0.0);
 
   recv_completed = 0;
   @unblock(recv_north_task_id);
@@ -294,10 +348,10 @@ task stencil() void {
 
   iter += 1;
   if(iter == iterations){
-    final_tsc();  // completion timestamp
-    sys_mod.unblock_cmd_stream();
+    final_tsc();                  // completion ts
+    sys_mod.unblock_cmd_stream(); // exit
   }else{
-    send_halo();
+    send_halo();  // continue
   }
 }
 

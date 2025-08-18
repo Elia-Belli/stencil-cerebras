@@ -6,3 +6,5 @@ wio_flows_tmpdir*
 sim_stats.json
 simconfig.json
 sim.log
+
+*.pyc

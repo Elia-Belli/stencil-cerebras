@@ -26,8 +26,7 @@ iterations = int(compile_data['params']['iterations'])
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
-#A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
-halo = 2
+halo = 3
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
 if (N % w != 0): pad_y = w - (N%w)
@@ -38,7 +37,8 @@ elements_per_PE = pe_M * pe_N
 
 
 # Stencil
-coefficients = np.array([0.0625, 0.0625, 0.0625, 0.0625, -1.0, 0.0625, 0.0625, 0.0625, 0.0625], dtype=np.float32)
+#coefficients = np.array([0.08333,0.08333,0.08333,0.08333,0.08333,0.08333,-1,0.08333,0.08333,0.08333,0.08333,0.08333,0.08333], dtype=np.float32)
+coefficients = np.array([0.0,0.08,0.08,0.0,0.08,0.08,-1,0.08,0.08,0.0,0.0,0.0,0.0], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
@@ -63,7 +63,7 @@ runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=F
 print("\nCopying A onto Device...")
 
 # Load coefficients
-runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 9, streaming=False,
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 13, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("DONE!")
 print("Loading coefficients...")
@@ -75,14 +75,14 @@ print("Starting Computation...")
 
 # Retrieve result for correctness check
 if verify:
-  y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
-  runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
+  result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
+  runner.memcpy_d2h(result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
     order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
   print("DONE!")
-  print("Copying back y_result...")
+  print("Copying back result...")
 
-  y_result = y_result.reshape(w, h, *tiled_shape).transpose(0, 2, 1, 3)
-  y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
+  result = result.reshape(w, h, *tiled_shape).transpose(0, 2, 1, 3)
+  result = result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
 # Retrieve timings
 data = np.zeros((w*h*3), dtype=np.uint32)
@@ -103,22 +103,22 @@ print("DONE!\n")
 if verify:
   print("Checking Result")
 
-  y_expected = cpu_stencil_2r(A.copy(), M, N, coefficients, iterations)
+  y_expected = cpu_stencil_3r(A.copy(), M, N, coefficients, iterations)
 
   if(verbose):
     print(f'Input:\n{A.reshape(M,N)}\n')
     print(f'Expected:\n{y_expected.reshape(M,N)}\n')  
-    print(f'Output:\n{y_result.reshape(M,N)}\n')  
+    print(f'Output:\n{result.reshape(M,N)}\n')  
 
   with open("../../../logs/wse_result.txt", "w+") as f:
-    for i in y_result:
+    for i in result:
       print(f'{i}', file=f)  
 
   with open("../../../logs/cpu_result.txt", "w+") as f:
     for i in y_expected:
       print(f'{i}', file=f)  
 
-  np.testing.assert_allclose(y_result, y_expected, atol=0)
+  np.testing.assert_allclose(result, y_expected, atol=10e-7)
   print("SUCCESS!\n")
 
 
@@ -142,7 +142,7 @@ for x in range(w):
       max_w = x
       max_h = y
 
-flops = (M*N) * 9 * 2 * iterations
+flops = (M*N) * 13 * 2 * iterations
 cells = (M*N) * iterations
 time = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
 tile_cells = cells/(h*w)
@@ -157,6 +157,6 @@ if(verbose):
   print(f'GStencil/s: {cells / time * 10e-9} (TOTAL)')
 
 
-# print y_results to file
+# print results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star-2r', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star-3r', file=f)

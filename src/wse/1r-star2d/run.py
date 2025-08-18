@@ -37,7 +37,7 @@ elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 
 # Stencil
-coefficients = np.array([1.0, 1.0, 1.0, 1.0, -4.0], dtype=np.float32)
+coefficients = np.array([0.25, 0.25, 0.25, 0.25, -1.0], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
@@ -103,7 +103,7 @@ print("DONE!\n")
 if verify:
   print("Checking Result")
 
-  y_expected = cpu_stencil_1r(A, M, N, iterations)
+  y_expected = cpu_stencil_1r(A.copy(), M, N, coefficients, iterations)
 
   if(verbose):
     print(f'Input:\n{A.reshape(M,N)}\n')
@@ -159,4 +159,4 @@ if(verbose):
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{GStencil},{min_cycles},{max_cycles},{args.arch},star-1r', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star-1r', file=f)
