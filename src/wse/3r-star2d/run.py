@@ -37,8 +37,7 @@ elements_per_PE = pe_M * pe_N
 
 
 # Stencil
-#coefficients = np.array([0.08333,0.08333,0.08333,0.08333,0.08333,0.08333,-1,0.08333,0.08333,0.08333,0.08333,0.08333,0.08333], dtype=np.float32)
-coefficients = np.array([0.0,0.08,0.08,0.0,0.08,0.08,-1,0.08,0.08,0.0,0.0,0.0,0.0], dtype=np.float32)
+coefficients = np.array([0.0625,0.0625,0.125,0.0625,0.0625,0.125,-1.0625,0.125,0.0625,0.0625,0.125,0.0625,0.0625], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
