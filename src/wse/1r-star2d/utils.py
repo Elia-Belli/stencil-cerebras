@@ -39,15 +39,15 @@ def cpu_stencil_1r(A, m, n, c, iters):
   y_aux = np.zeros(m*n, dtype=np.float32)
 
   for _ in range(iters):
-    y_aux.fill(0.0)  # reset before accumulation
-
     for i in range(m):
       for j in range(n):
         idx = i*n+j
+
+        y_aux[idx] = c[2] * y[idx]
+
         if(i-1 >= 0): y_aux[idx] += c[0] * y[(i-1)*n+j]
-        if(i+1 < m) : y_aux[idx] += c[1] * y[(i+1)*n+j]
-        if(j-1 >= 0): y_aux[idx] += c[2] * y[i*n+j-1]
-        y_aux[idx] += c[4] *y[i*n+j]
+        if(i+1 < m) : y_aux[idx] += c[4] * y[(i+1)*n+j]
+        if(j-1 >= 0): y_aux[idx] += c[1] * y[i*n+j-1]
         if(j+1 < n) : y_aux[idx] += c[3] * y[i*n+j+1]
 
     y, y_aux = y_aux, y

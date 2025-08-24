@@ -26,6 +26,7 @@ iterations = int(compile_data['params']['iterations'])
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
+#A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
 halo = 1
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
@@ -37,7 +38,8 @@ elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 
 # Stencil
-coefficients = np.array([0.25, 0.25, 0.25, 0.25, -1.0], dtype=np.float32)
+coefficients = np.array([0.25, 0.25, -1.0, 0.25, 0.25], dtype=np.float32)
+#coefficients = np.array([1,1,1,1,1], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime

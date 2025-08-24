@@ -73,18 +73,18 @@ var n_sides: i8;
 const n: i32 = (M + 2)*(N + 2);
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
-var coeff = @zeros([9]f32);
+var coeff = @zeros([5]f32);
 
 // pointers 
 var A_ptr:      [*]f32 = &A;
 var A_aux_ptr:  [*]f32 = &A_aux;
-var coeff_ptr: [*]f32 = &coeff;
+var coeff_ptr:  [*]f32 = &coeff;
 var temp:       [*]f32;
 
 // timestamps
-var tsc_end_buf = @zeros([timestamp_mod.tsc_size_words]u16);
+var tsc_end_buf   = @zeros([timestamp_mod.tsc_size_words]u16);
 var tsc_start_buf = @zeros([timestamp_mod.tsc_size_words]u16);
-var timer_buf = @zeros([3]f32);
+var timer_buf     = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
 // DSDs
@@ -178,11 +178,11 @@ fn send_halo() void {
 var send_completed: i8 = 0;
 task north_end() void { send_completed += 1; }
 task south_end() void { send_completed += 1; }
-task east_end() void { send_completed += 1; }
-task west_end() void { send_completed += 1; }
+task east_end()  void { send_completed += 1; }
+task west_end()  void { send_completed += 1; }
 
 // RECV
-var left_count: i16 = 0;
+var left_count:  i16 = 0;
 var right_count: i16 = 0;
 var north_count: i16 = 0;
 var south_count: i16 = 0;
@@ -248,43 +248,31 @@ task wait_send() void {
 var iter: i32 = 0;
 task stencil() void {
 
-  var aux_row_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .extent = N}); // current row
-  var a_row_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[1], .extent = N});       // upper row
+  // center
+  const aux_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[N+3], .stride = .{1,3}, .extent = .{M,N}});
+  var a_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[N+3], .stride = .{1,3}, .extent = .{M,N}});
+  @fmuls(aux_dsd, a_dsd, coeff[2]);
 
-  for (@range(i16, M)) |_| {
+  // north
+  a_dsd = @increment_dsd_offset(a_dsd, -(N+2), f32);  // base = 1
+  @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[0]);
 
-    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[0]); // mult by north_coeff -> add upper row
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, 2*(N+2), f32);
+  // south
+  a_dsd = @increment_dsd_offset(a_dsd, (N+2)*2, f32);  // base = (N+2)*2 + 1
+  @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[4]);
 
-    @fmacs(aux_row_dsd, aux_row_dsd, a_row_dsd, coeff[1]); // mult by south_coeff -> add lower row
-    a_row_dsd = @increment_dsd_offset(a_row_dsd, -(N+2), f32);
+  // west
+  a_dsd = @increment_dsd_offset(a_dsd, -(N+3), f32);  // base = (N+2)
+  @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[1]);
 
-    aux_row_dsd = @increment_dsd_offset(aux_row_dsd, N+2, f32); // next row
-  }
+  // east
+  a_dsd = @increment_dsd_offset(a_dsd, 2, f32);  // base = (N+4)
+  @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[3]);
 
-  var aux_col_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[N+3], .stride = (N+2), .extent = M});  // current col
-  var a_col_dsd   = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+2], .stride = (N+2), .extent = M});      // left col
-
-  for (@range(i16, N)) |_| {
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[2]); // mult by west_coeff -> add left column
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[4]); // mult by center_coeff -> add self
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, 1, f32);
-
-    @fmacs(aux_col_dsd, aux_col_dsd, a_col_dsd, coeff[3]); // mult by east_coeff -> add right column
-    a_col_dsd = @increment_dsd_offset(a_col_dsd, -1, f32);
-
-    aux_col_dsd = @increment_dsd_offset(aux_col_dsd, 1, f32); // next col
-  }
 
   temp  = A_ptr;
   A_ptr = A_aux_ptr;
   A_aux_ptr = temp;
-
-  const aux_dsd = @get_dsd(mem1d_dsd, .{.base_address= &A_aux_ptr[0], .extent= n});
-  @fmovs(aux_dsd, 0.0);
 
   recv_completed = 0;
   @unblock(recv_north_task_id);
