@@ -40,6 +40,7 @@ const send_west_oq = @get_output_queue(3);
 const send_north_oq = @get_output_queue(4);
 const send_south_oq = @get_output_queue(5);
 
+
 // Task IDs
 // On WSE-2, data task IDs are created from colors; on WSE-3, from input queues
 const recv_east_task_id : data_task_id =
@@ -63,16 +64,18 @@ const east_id : local_task_id = @get_local_task_id(13);
 const west_id : local_task_id = @get_local_task_id(14);
 const wait_send_task_id : local_task_id = @get_local_task_id(15);
 
-//////////////////////////////////////////////////
-//        48 kB of global memory                //    
-//////////////////////////////////////////////////
+////////////////////////////////////////////////
+//          48 kB of global memory            //    
+////////////////////////////////////////////////
 
 var idx: i16;
 var idy: i16;
 var n_sides: i8;
 const halo: i16 = radius;
+const line = (N + 2*halo);  // line size
+const col = (M + 2*halo);   // col size
 
-const n: i32 = (M + (2*halo))*(N + (2*halo)); // total local matrix size with halo
+const n: i32 = line * col; // total local matrix size with halo
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
 var coeff = @zeros([(2*radius+1)*(2*radius+1)]f32);
@@ -94,6 +97,11 @@ const east_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color 
 const west_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_west_color, .output_queue = send_west_oq});
 const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_north_color, .output_queue = send_north_oq});
 const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_south_color, .output_queue = send_south_oq});
+
+const ul_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_north_color, .output_queue = send_north_oq});
+const ur_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_east_color, .output_queue = send_east_oq});
+const dr_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_south_color, .output_queue = send_south_oq});
+const dl_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_west_color, .output_queue = send_west_oq});
 
 // Utils Functions
 fn final_tsc() void {
@@ -129,42 +137,43 @@ fn init() void {
   timestamp_mod.enable_tsc();
   timestamp_mod.get_timestamp(&tsc_start_buf);
 
-  send_halo();  // start compute
+  send_edges();  // start compute
 }
 
 // SEND
-fn send_halo() void {
-
-  send_completed = 0; // reset counter
+fn send_edges() void {
 
   // edges DSDs
-  var south_halo_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[M*(N+2*halo)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
-  var north_halo_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(N+2*halo)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
+  var south_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(M*line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
+  var north_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
 
-  var east_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(N+2*halo)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
-  var west_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(N+2*halo)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
+  var east_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
+  var west_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
 
   if(idx == 0){
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(idx == width -1) {
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
+    @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});  // send east
+  }else if(idx == width-1) {
+    @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});  // send west
   }else{
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
+    @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});  // send east
+    @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});  // send west
   }
   
   if(idy == 0){
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(idy == height -1){
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, south_edge_dsd,.{ .async = true, .activate = south_id});  // send south
+  }else if(idy == height-1){
+    @fmovs(north_out_dsd, north_edge_dsd,.{ .async = true, .activate = north_id});  // send north
   }else{
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
+    @fmovs(north_out_dsd, north_edge_dsd,.{ .async = true, .activate = north_id});  // send north
+    @fmovs(south_out_dsd, south_edge_dsd,.{ .async = true, .activate = south_id});  // send south
   }
   
 }
 
-// completed send callbacks
+// Completed send callbacks
+//  Each side has its own task to increment the counter, 
+//  because if two sides schedule the activation of the same task
+//  at the same time, only one activation is registered.
 var send_completed: i8 = 0;
 task north_end() void { send_completed += 1; }
 task south_end() void { send_completed += 1; }
@@ -179,53 +188,116 @@ var south_count: i16 = 0;
 
 task recv_north(data:f32) void{
   const base = halo;
-  A_ptr[base + north_count + (north_count / N) * (2*halo)] = data;  
-  north_count += 1;
 
-  if(north_count == (N*halo)){
-    @block(recv_north_task_id);
-    north_count = 0;
-    recv_callback();
+  if(idx > 0 and idy > 0){
+    if(north_count == (N*halo)){
+      A_ptr[0] = data;
+      @block(recv_north_task_id);
+      north_count = 0;
+      @fmovs(dl_out_dsd, A_ptr[1]); // forward: only pes that have N and W neighbor 
+      recv_callback();
+      return;
+    }
+    A_ptr[base + north_count + (north_count / N) * (2*halo)] = data;  
   }
+  else
+  {
+    A_ptr[base + north_count + (north_count / N) * (2*halo)] = data;
+    if(north_count == (N*halo)-1){
+      @block(recv_north_task_id);
+      north_count = 0;
+      recv_callback();
+      return;
+    }
+  }
+
+  north_count += 1;
 }
 
 task recv_south(data:f32) void{
-  const base = halo + (M+halo)*(N+2*halo);
-  A_ptr[base + south_count + (south_count / N) * (2*halo)] = data;
-  south_count += 1;
+  const base = halo + (M+halo)*line;
 
-  if(south_count == (N*halo)){
-    @block(recv_south_task_id);
-    south_count = 0;
-    recv_callback();
+  if(idx < width-1 and idy < height-1){
+    if(south_count == (N*halo)){
+      A_ptr[line*col-1] = data;
+      @block(recv_south_task_id);
+      south_count = 0;
+      @fmovs(ur_out_dsd, A_ptr[line*col - 2]);
+      recv_callback();
+      return;
+    }
+    A_ptr[base + south_count + (south_count / N) * (2*halo)] = data;
+  }else
+  {
+    A_ptr[base + south_count + (south_count / N) * (2*halo)] = data;
+    if(south_count == (N*halo)-1){
+      @block(recv_south_task_id);
+      south_count = 0;
+      recv_callback();
+      return;
+    }
   }
+
+  south_count += 1;
 }
 
 task recv_west(data:f32) void{
-  const base = halo*(N+2*halo);
-  A_ptr[base + left_count + (left_count / halo) * (N+halo)] = data;
-  left_count += 1;
+  const base = halo*line;
 
-  if(left_count == (M*halo)){
-    @block(recv_west_task_id);
-    left_count = 0;
-    recv_callback();
+  if(idx > 0 and idy < height-1){
+    if(left_count == (M*halo)){
+      A_ptr[col*(line-1)] = data;
+      @block(recv_west_task_id);
+      left_count = 0;
+      recv_callback();
+      return;
+    }
+    if(left_count == M*halo-1){
+      @fmovs(dr_out_dsd, data);
+    }
+    A_ptr[base + left_count + (left_count / halo) * (N+halo)] = data;
+  }else{
+    A_ptr[base + left_count + (left_count / halo) * (N+halo)] = data;
+    if(left_count == (M*halo)-1){
+      @block(recv_west_task_id);
+      left_count = 0;
+      recv_callback();
+      return;
+    }
   }
+
+  left_count += 1;
 }
 
 task recv_east(data:f32) void{
-  const base = halo*(N+2*halo) + (N+halo);
-  A_ptr[base + right_count + (right_count / halo) * (N+halo)] = data;
-  right_count += 1;
+  const base = halo*line + (N+halo);
 
-  if(right_count == (M*halo)){
-    @block(recv_east_task_id);
-    right_count = 0;
-    recv_callback();
+  if(idx < width-1 and idy > 0){
+    if(right_count == (M*halo)){
+      A_ptr[line-1] = data;
+      @block(recv_east_task_id);
+      right_count = 0;
+      @fmovs(ul_out_dsd, A_ptr[(halo+1)*line-1]);
+      recv_callback();
+      return;
+    }
+    A_ptr[base + right_count + (right_count / halo) * (N+halo)] = data;
   }
+  else
+  {
+    A_ptr[base + right_count + (right_count / halo) * (N+halo)] = data;
+    if(right_count == (M*halo)-1){
+      @block(recv_east_task_id);
+      right_count = 0;
+      recv_callback();
+      return;
+    }
+  }
+
+  right_count += 1;
 }
 
-// completed recv callback --> complete all & wait for sends to finisg
+// completed recv callback --> complete all & wait for sends to finish
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
@@ -234,16 +306,17 @@ fn recv_callback() void {
 
 // wait for all sends to finish --> COMPUTE
 task wait_send() void {
-  if(send_completed == n_sides) { @activate(stencil_task_id);}
+  if(send_completed == n_sides) 
+  {
+    send_completed = 0;
+    @activate(stencil_task_id);
+  } 
   else { @activate(wait_send_task_id); }
 }
 
 // COMPUTE
 var iter: i32 = 0;
 task stencil() void {
-
-  const line = (N + 2*halo);
-  const col = (M + 2*halo);
 
   // center
   var aux_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[0], .extent = .{@as(i16,n),1}});
@@ -305,7 +378,7 @@ task stencil() void {
     final_tsc();  // completion timestamp
     sys_mod.unblock_cmd_stream();
   }else{
-    send_halo();  // next iteration
+    send_edges();  // next iteration
   }
 }
 

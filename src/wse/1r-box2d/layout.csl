@@ -2,14 +2,14 @@
 // On WSE-2, data tasks are bound to colors (IDs 0 through 24)
 //
 //  ID var                ID var     ID var                ID var
-//   0 send_east_color_1   9         18                    27 reserved (memcpy)
-//   1 send_east_color_2  10         19                    28 reserved (memcpy)
-//   2 send_west_color_1  11         20                    29 reserved
-//   3 send_west_color_2  12         21 reserved (memcpy)  30 reserved (memcpy)
-//   4 send_north_color_1 13         22 reserved (memcpy)  31 reserved
-//   5 send_north_color_2 14         23 reserved (memcpy)  32
-//   6 send_south_color_1 15         24                    33
-//   7 send_south_color_2 16         25                    34
+//   0 east_color_1        9         18                    27 reserved (memcpy)
+//   1 east_color_2       10         19                    28 reserved (memcpy)
+//   2 west_color_1       11         20                    29 reserved
+//   3 west_color_2       12         21 reserved (memcpy)  30 reserved (memcpy)
+//   4 north_color_1      13         22 reserved (memcpy)  31 reserved
+//   5 north_color_2      14         23 reserved (memcpy)  32
+//   6 south_color_1      15         24                    33
+//   7 south_color_2      16         25                    34
 //   8                    17         26                    35
 
 // WSE-3 task ID map
@@ -36,16 +36,18 @@ param M: i16;
 param N: i16;
 
 // Colors
-const send_east_color_1: color = @get_color(0);
-const send_east_color_2: color = @get_color(1);
-const send_west_color_1: color = @get_color(2);
-const send_west_color_2: color = @get_color(3);
+const east_color_1: color = @get_color(0);
+const east_color_2: color = @get_color(1);
+const west_color_1: color = @get_color(2);
+const west_color_2: color = @get_color(3);
 
-const send_north_color_1: color = @get_color(4);
-const send_north_color_2: color = @get_color(5);
-const send_south_color_1: color = @get_color(6);
-const send_south_color_2: color = @get_color(7);
+const north_color_1: color = @get_color(4);
+const north_color_2: color = @get_color(5);
+const south_color_1: color = @get_color(6);
+const south_color_2: color = @get_color(7);
 
+const se_color_1: color = @get_color(8);
+const se_color_2: color = @get_color(9);
 
 const memcpy = @import_module("<memcpy/get_params>", .{
   .width = kernel_dim_x,
@@ -81,20 +83,20 @@ layout {
   };
 
   const even_col_params = .{
-    .send_east_color = send_east_color_1, .recv_west_color = send_east_color_2,
-    .send_west_color = send_west_color_1, .recv_east_color = send_west_color_2
+    .send_east_color = east_color_1, .recv_west_color = east_color_2,
+    .send_west_color = west_color_1, .recv_east_color = west_color_2
   };
   const odd_col_params = .{
-    .send_east_color = send_east_color_2, .recv_west_color = send_east_color_1,
-    .send_west_color = send_west_color_2, .recv_east_color = send_west_color_1
+    .send_east_color = east_color_2, .recv_west_color = east_color_1,
+    .send_west_color = west_color_2, .recv_east_color = west_color_1
   };
   const even_row_params = .{
-    .send_north_color = send_north_color_1, .recv_south_color = send_north_color_2,
-    .send_south_color = send_south_color_1, .recv_north_color = send_south_color_2
+    .send_north_color = north_color_1, .recv_south_color = north_color_2,
+    .send_south_color = south_color_1, .recv_north_color = south_color_2
   };
   const odd_row_params = .{
-    .send_north_color = send_north_color_2, .recv_south_color = send_north_color_1,
-    .send_south_color = send_south_color_2, .recv_north_color = send_south_color_1
+    .send_north_color = north_color_2, .recv_south_color = north_color_1,
+    .send_south_color = south_color_2, .recv_north_color = south_color_1
   }; 
 
   // Tile Code
@@ -129,51 +131,51 @@ layout {
     for (@range(i16, kernel_dim_y)) |pe_y| {
       if (pe_x % 2 == 0){
         if(pe_x == 0){
-          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, send_west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
         }else if(pe_x == kernel_dim_x - 1){
-          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }else{
-          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
-          @set_color_config(pe_x, pe_y, send_west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
         }
       }else{
         if(pe_x == kernel_dim_x - 1){
-          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }else{
-          @set_color_config(pe_x, pe_y, send_east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_east_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, send_west_color_1, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }
       }
 
       if(pe_y % 2 == 0){
         if(pe_y == 0){
-          @set_color_config(pe_x, pe_y, send_north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
         }else if(pe_y == kernel_dim_y-1){
-          @set_color_config(pe_x, pe_y, send_north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, send_south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }else{
-          @set_color_config(pe_x, pe_y, send_north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, send_north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
-          @set_color_config(pe_x, pe_y, send_south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }
       }else{
         if(pe_y == kernel_dim_y-1){
-          @set_color_config(pe_x, pe_y, send_north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, send_south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }else{
-          @set_color_config(pe_x, pe_y, send_north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, send_north_color_1, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, send_south_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
         }
       }
     }

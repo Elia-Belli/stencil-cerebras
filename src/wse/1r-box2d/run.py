@@ -39,9 +39,9 @@ elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 # Stencil
 coefficients = get_coefficients(args.stencil, halo)
-coefficients = np.array([ 0, 0, 0,
-                          0, 0, 1,
-                          0, 0, 0], dtype=np.float32)
+# coefficients = np.array([ 0, 0, 0,
+#                           0, 0, 0,
+#                           0, 0, 1], dtype=np.float32)
 
 c_tiled = np.tile(coefficients, w*h)
 
@@ -164,4 +164,4 @@ if(verbose):
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r (reusing send colors)', file=f)
