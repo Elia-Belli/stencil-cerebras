@@ -1,10 +1,10 @@
 #!/bin/bash
 
-: "${kernel_dim_x:=2}"
-: "${kernel_dim_y:=2}"
-: "${inp_rows:=8}"
-: "${inp_cols:=8}"
-: "${iterations:=100}"
+: "${kernel_dim_x:=4}"
+: "${kernel_dim_y:=4}"
+: "${inp_rows:=256}"
+: "${inp_cols:=256}"
+: "${iterations:=1}"
 : "${radius:=3}"
 : "${arch:=wse3}"
 
