@@ -2,11 +2,11 @@
 
 : "${kernel_dim_x:=4}"
 : "${kernel_dim_y:=4}"
-: "${inp_rows:=256}"
-: "${inp_cols:=256}"
+: "${inp_rows:=64}"
+: "${inp_cols:=64}"
 : "${iterations:=1}"
 : "${radius:=1}"
-: "${arch:=wse3}"
+: "${arch:=wse2}"
 
 fabric_dim_x=$((7 + kernel_dim_x))
 fabric_dim_y=$((2 + kernel_dim_y))
@@ -24,7 +24,7 @@ radius:$radius,M:$inp_rows,N:$inp_cols,iterations:$iterations \
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, stencil radius: ${radius}, iterations: $iterations"
 
-    cs_python run.py --name out --arch=$arch --stencil "${stencil[@]}" --verify --verbose #--traces 
+    cs_python run.py --name out --arch=$arch --stencil "${stencil[@]}" --verify --verbose --traces 
 }
 
 # If script is sourced, don't auto-run

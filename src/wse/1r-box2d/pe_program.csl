@@ -1,5 +1,6 @@
 
 const sys_mod = @import_module("<memcpy/memcpy>", memcpy_params);
+const ctrl = @import_module("<control>");
 const layout_mod = @import_module("<layout>");
 const timestamp_mod = @import_module("<time>");
 const utils = @import_module("my_utils.csl", .{.width = width, .height = height});
@@ -29,32 +30,31 @@ param recv_north_color: color;
 // Queues IDs
 // These input queues are bound to tasks for WSE-3,
 // so they do not have associated microthreaded operations
-const recv_east_iq = @get_input_queue(2);
-const recv_west_iq = @get_input_queue(3);
-const recv_north_iq = @get_input_queue(4);
-const recv_south_iq = @get_input_queue(5);
+const east_iq = @get_input_queue(2);
+const west_iq = @get_input_queue(3);
+const north_iq = @get_input_queue(4);
+const south_iq = @get_input_queue(5);
 
 // These queues are used in microthreaded operations on both WSE-2 and WSE-3
-const send_east_oq = @get_output_queue(2);
-const send_west_oq = @get_output_queue(3);
-const send_north_oq = @get_output_queue(4);
-const send_south_oq = @get_output_queue(5);
-
+const east_oq = @get_output_queue(2);
+const west_oq = @get_output_queue(3);
+const north_oq = @get_output_queue(4);
+const south_oq = @get_output_queue(5);
 
 // Task IDs
 // On WSE-2, data task IDs are created from colors; on WSE-3, from input queues
 const recv_east_task_id : data_task_id =
   if      (@is_arch("wse2")) @get_data_task_id(recv_east_color)
-  else if (@is_arch("wse3")) @get_data_task_id(recv_east_iq);
+  else if (@is_arch("wse3")) @get_data_task_id(east_iq);
 const recv_west_task_id : data_task_id =
   if      (@is_arch("wse2")) @get_data_task_id(recv_west_color)
-  else if (@is_arch("wse3")) @get_data_task_id(recv_west_iq);
+  else if (@is_arch("wse3")) @get_data_task_id(west_iq);
 const recv_north_task_id : data_task_id =
   if      (@is_arch("wse2")) @get_data_task_id(recv_north_color)
-  else if (@is_arch("wse3")) @get_data_task_id(recv_north_iq);
+  else if (@is_arch("wse3")) @get_data_task_id(north_iq);
 const recv_south_task_id : data_task_id =
   if      (@is_arch("wse2")) @get_data_task_id(recv_south_color)
-  else if (@is_arch("wse3")) @get_data_task_id(recv_south_iq);
+  else if (@is_arch("wse3")) @get_data_task_id(south_iq);
 
 // Task ID for local tasks
 const stencil_task_id : local_task_id = @get_local_task_id(10);
@@ -64,18 +64,25 @@ const east_id : local_task_id = @get_local_task_id(13);
 const west_id : local_task_id = @get_local_task_id(14);
 const wait_send_task_id : local_task_id = @get_local_task_id(15);
 
+// Control Task IDs
+const south_ctrl_id : control_task_id = @get_control_task_id(40);
+const north_ctrl_id : control_task_id = @get_control_task_id(41);
+const east_ctrl_id : control_task_id = @get_control_task_id(42);
+const west_ctrl_id : control_task_id = @get_control_task_id(43);
+
 ////////////////////////////////////////////////
 //          48 kB of global memory            //    
 ////////////////////////////////////////////////
 
 var idx: i16;
 var idy: i16;
-var n_sides: i8;
+var n_sides: u16;
 const halo: i16 = radius;
+
 const line = (N + 2*halo);  // line size
 const col = (M + 2*halo);   // col size
-
 const n: i32 = line * col; // total local matrix size with halo
+
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
 var coeff = @zeros([(2*radius+1)*(2*radius+1)]f32);
@@ -93,15 +100,20 @@ var timer_buf     = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
 // DSDs
-const east_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_east_color, .output_queue = send_east_oq});
-const west_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_west_color, .output_queue = send_west_oq});
-const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_north_color, .output_queue = send_north_oq});
-const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_south_color, .output_queue = send_south_oq});
+const east_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_east_color, .output_queue = east_oq});
+const west_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_west_color, .output_queue = west_oq});
+const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_north_color, .output_queue = north_oq});
+const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_south_color, .output_queue = south_oq});
 
-const ul_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_north_color, .output_queue = send_north_oq});
-const ur_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_east_color, .output_queue = send_east_oq});
-const dr_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_south_color, .output_queue = send_south_oq});
-const dl_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_west_color, .output_queue = send_west_oq});
+const north_ctrl_dsd = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_north_color, .control = true, .output_queue = north_oq});
+const south_ctrl_dsd = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_south_color, .control = true, .output_queue = south_oq});
+const east_ctrl_dsd  = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_east_color, .control = true, .output_queue = east_oq});
+const west_ctrl_dsd  = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_west_color, .control = true, .output_queue = west_oq});
+
+const ul_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_south_color, .output_queue = south_oq});
+const ur_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_west_color, .output_queue = west_oq});
+const dr_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_north_color, .output_queue = north_oq});
+const dl_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_east_color, .output_queue = east_oq});
 
 // Utils Functions
 fn final_tsc() void {
@@ -128,11 +140,20 @@ fn final_tsc() void {
 //                PROGRAM                    //
 ///////////////////////////////////////////////
 
+var north_halo_dsd : mem1d_dsd;
+var south_halo_dsd : mem1d_dsd;
+var west_halo_dsd  : mem1d_dsd;
+var east_halo_dsd  : mem1d_dsd;
 fn init() void {
 
   idx = @as(i16, layout_mod.get_x_coord());
   idy = @as(i16, layout_mod.get_y_coord());
   n_sides = utils.sides(idx, idy);
+
+  north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo], .extent = 1});
+  south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo + (M+halo)*line], .extent = 1});
+  west_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo*line], .extent = 1});
+  east_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo*line + (N+halo)], .extent = 1});
 
   timestamp_mod.enable_tsc();
   timestamp_mod.get_timestamp(&tsc_start_buf);
@@ -150,155 +171,124 @@ fn send_edges() void {
   var east_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
   var west_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
 
-  if(idx == 0){
-    @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(idx == width-1) {
-    @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});  // send west
-  }else{
-    @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});  // send west
-  }
-  
-  if(idy == 0){
-    @fmovs(south_out_dsd, south_edge_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(idy == height-1){
-    @fmovs(north_out_dsd, north_edge_dsd,.{ .async = true, .activate = north_id});  // send north
-  }else{
-    @fmovs(north_out_dsd, north_edge_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, south_edge_dsd,.{ .async = true, .activate = south_id});  // send south
-  }
+  if(idx > 0)         { @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});}  // send west
+  if(idx < width-1)   { @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});}  // send east
+
+  if(idy > 0)         { @fmovs(north_out_dsd, north_edge_dsd, .{ .async = true, .activate = north_id});}  // send north
+  if(idy < height-1)  { @fmovs(south_out_dsd, south_edge_dsd, .{ .async = true, .activate = south_id});}  // send south
   
 }
 
-// Completed send callbacks
-//  Each side has its own task to increment the counter, 
-//  because if two sides schedule the activation of the same task
-//  at the same time, only one activation is registered.
-var send_completed: i8 = 0;
-task north_end() void { send_completed += 1; }
-task south_end() void { send_completed += 1; }
-task east_end()  void { send_completed += 1; }
-task west_end()  void { send_completed += 1; }
+// completed send callbacks
+const north_ctrl_encoded = ctrl.encode_control_task_payload(south_ctrl_id);
+const north_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &north_ctrl_encoded, .extent = 1});
+var south_ctrl_encoded = ctrl.encode_control_task_payload(north_ctrl_id);
+const south_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &south_ctrl_encoded, .extent = 1});
+const east_ctrl_encoded = ctrl.encode_control_task_payload(west_ctrl_id);
+const east_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &east_ctrl_encoded, .extent = 1});
+var west_ctrl_encoded = ctrl.encode_control_task_payload(east_ctrl_id);
+const west_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &west_ctrl_encoded, .extent = 1});
+
+var send_completed: u16 = 0;
+var is_frwrd_south: u16 = 0;  
+var is_frwrd_west: u16 = 0;
+
+task north_end() void { 
+  send_completed += 1; 
+  @mov32(north_ctrl_dsd, north_ctrl_encoded_dsd, .{.async = true});
+}
+
+task south_end() void {
+  send_completed += 1;
+  south_ctrl_encoded = ctrl.encode_single_payload(ctrl.opcode.NOP, false, north_ctrl_id, is_frwrd_south);
+  @mov32(south_ctrl_dsd, south_ctrl_encoded_dsd, .{.async = true});
+  if(idx > 0 and idy < height-1) {is_frwrd_south = 1;}  // toggle forward flag
+}
+
+task east_end() void { 
+  send_completed += 1; 
+  @mov32(east_ctrl_dsd, east_ctrl_encoded_dsd, .{.async = true});
+}
+
+task west_end() void { 
+  send_completed += 1;
+  west_ctrl_encoded = ctrl.encode_single_payload(ctrl.opcode.NOP, false, east_ctrl_id, is_frwrd_west);
+  @mov32(west_ctrl_dsd, west_ctrl_encoded_dsd, .{.async = true});
+  if(idx > 0 and idy > 0) {is_frwrd_west = 1;}  // toggle forward flag
+}
 
 // RECV
-var left_count:  i16 = 0;
-var right_count: i16 = 0;
-var north_count: i16 = 0;
-var south_count: i16 = 0;
-
 task recv_north(data:f32) void{
-  const base = halo;
-
-  if(idx > 0 and idy > 0){
-    if(north_count == (N*halo)){
-      A_ptr[0] = data;
-      @block(recv_north_task_id);
-      north_count = 0;
-      @fmovs(dl_out_dsd, A_ptr[1]); // forward: only pes that have N and W neighbor 
-      recv_callback();
-      return;
-    }
-    A_ptr[base + north_count + (north_count / N) * (2*halo)] = data;  
-  }
-  else
-  {
-    A_ptr[base + north_count + (north_count / N) * (2*halo)] = data;
-    if(north_count == (N*halo)-1){
-      @block(recv_north_task_id);
-      north_count = 0;
-      recv_callback();
-      return;
-    }
-  }
-
-  north_count += 1;
+  @fmovs(north_halo_dsd, data);
+  north_halo_dsd = @increment_dsd_offset(north_halo_dsd, 1, f32);
 }
 
 task recv_south(data:f32) void{
-  const base = halo + (M+halo)*line;
-
-  if(idx < width-1 and idy < height-1){
-    if(south_count == (N*halo)){
-      A_ptr[line*col-1] = data;
-      @block(recv_south_task_id);
-      south_count = 0;
-      @fmovs(ur_out_dsd, A_ptr[line*col - 2]);
-      recv_callback();
-      return;
-    }
-    A_ptr[base + south_count + (south_count / N) * (2*halo)] = data;
-  }else
-  {
-    A_ptr[base + south_count + (south_count / N) * (2*halo)] = data;
-    if(south_count == (N*halo)-1){
-      @block(recv_south_task_id);
-      south_count = 0;
-      recv_callback();
-      return;
-    }
-  }
-
-  south_count += 1;
+  @fmovs(south_halo_dsd, data);
+  south_halo_dsd = @increment_dsd_offset(south_halo_dsd, 1, f32);
 }
 
 task recv_west(data:f32) void{
-  const base = halo*line;
-
-  if(idx > 0 and idy < height-1){
-    if(left_count == (M*halo)){
-      A_ptr[col*(line-1)] = data;
-      @block(recv_west_task_id);
-      left_count = 0;
-      recv_callback();
-      return;
-    }
-    if(left_count == M*halo-1){
-      @fmovs(dr_out_dsd, data);
-    }
-    A_ptr[base + left_count + (left_count / halo) * (N+halo)] = data;
-  }else{
-    A_ptr[base + left_count + (left_count / halo) * (N+halo)] = data;
-    if(left_count == (M*halo)-1){
-      @block(recv_west_task_id);
-      left_count = 0;
-      recv_callback();
-      return;
-    }
-  }
-
-  left_count += 1;
+  @fmovs(west_halo_dsd, data);
+  west_halo_dsd = @increment_dsd_offset(west_halo_dsd, line, f32);
 }
 
 task recv_east(data:f32) void{
-  const base = halo*line + (N+halo);
+  @fmovs(east_halo_dsd, data);
+  east_halo_dsd = @increment_dsd_offset(east_halo_dsd, line, f32);
+}
 
-  if(idx < width-1 and idy > 0){
-    if(right_count == (M*halo)){
-      A_ptr[line-1] = data;
-      @block(recv_east_task_id);
-      right_count = 0;
-      @fmovs(ul_out_dsd, A_ptr[(halo+1)*line-1]);
-      recv_callback();
-      return;
-    }
-    A_ptr[base + right_count + (right_count / halo) * (N+halo)] = data;
-  }
-  else
-  {
-    A_ptr[base + right_count + (right_count / halo) * (N+halo)] = data;
-    if(right_count == (M*halo)-1){
-      @block(recv_east_task_id);
-      right_count = 0;
-      recv_callback();
-      return;
-    }
+// completed recv callback : activated by control wavelets
+task south_ctrl() void {
+  @block(recv_south_task_id);
+  south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo + (M+halo)*line], .extent = 1}); // swap-reset dsd for next iter
+  recv_callback();
+}
+
+//const ut7 = @get_ut_id(7);
+
+task north_ctrl(forwarded: u16) void {
+  
+  // if i have to forward ne corner, and i havent already forwarded it : forward  
+  if((idx > 0 and idy > 0) and (forwarded == 0)){ 
+    var west_frwd_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo], .extent = 1});
+    @fmovs(ur_out_dsd, west_frwd_dsd, .{.async = true, .activate = west_id}); // .ut_id = ut7,
+    // provvisorio, altrimenti non parte il callback siccome non sto ricevendo il forward da nord e stalla
+    @block(recv_north_task_id);
+    north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo], .extent = 1});
+    recv_callback();
   }
 
-  right_count += 1;
+  // if i dont receive nw corner, or i already received it : block + callback
+  if((idx == 0 or idy == 0) or (forwarded == 1)){
+    @block(recv_north_task_id);
+    north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo], .extent = 1});
+    recv_callback();
+  }
+
+}
+
+task west_ctrl() void {
+  @block(recv_west_task_id);
+  west_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo*line], .extent = 1});
+  recv_callback();
+}
+
+task east_ctrl(forwarded: u16) void {
+
+  if((idx == width-1 or idy == 0) or forwarded == 1){
+    @block(recv_east_task_id);
+    east_halo_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo*line + (N+halo)], .extent = 1});
+    recv_callback();
+  }
+
+  if((idx < width-1 and idy > 0) and forwarded == 0){
+    east_halo_dsd = @increment_dsd_offset(east_halo_dsd, -((M+1)*line), f32); // go to ne corner
+  }
 }
 
 // completed recv callback --> complete all & wait for sends to finish
-var recv_completed: i8 = 0;
+var recv_completed: u16 = 0;
 fn recv_callback() void {
   recv_completed += 1;
   if(recv_completed == n_sides) @activate(wait_send_task_id);
@@ -306,7 +296,7 @@ fn recv_callback() void {
 
 // wait for all sends to finish --> COMPUTE
 task wait_send() void {
-  if(send_completed == n_sides) 
+  if(send_completed >= n_sides) 
   {
     send_completed = 0;
     @activate(stencil_task_id);
@@ -396,17 +386,23 @@ comptime {
   @bind_data_task(recv_north, recv_north_task_id);
   @bind_data_task(recv_south, recv_south_task_id);
 
+  // Control tasks : no need for explicit unblock since they use data task colors
+  @bind_control_task(south_ctrl, south_ctrl_id);
+  @bind_control_task(north_ctrl, north_ctrl_id);
+  @bind_control_task(east_ctrl, east_ctrl_id);
+  @bind_control_task(west_ctrl, west_ctrl_id);
+
   // On WSE-3, we must explicitly initialize input and output queues
   if (@is_arch("wse3")) {
-    @initialize_queue(send_east_oq, .{ .color = send_east_color });
-    @initialize_queue(send_west_oq, .{ .color = send_west_color });
-    @initialize_queue(send_north_oq, .{ .color = send_north_color });
-    @initialize_queue(send_south_oq, .{ .color = send_south_color });
+    @initialize_queue(east_oq, .{ .color = send_east_color });
+    @initialize_queue(west_oq, .{ .color = send_west_color });
+    @initialize_queue(north_oq, .{ .color = send_north_color });
+    @initialize_queue(south_oq, .{ .color = send_south_color });
     
-    @initialize_queue(recv_east_iq, .{ .color = recv_east_color });
-    @initialize_queue(recv_west_iq, .{ .color = recv_west_color });
-    @initialize_queue(recv_north_iq, .{ .color = recv_north_color });
-    @initialize_queue(recv_south_iq, .{ .color = recv_south_color });
+    @initialize_queue(east_iq, .{ .color = recv_east_color });
+    @initialize_queue(west_iq, .{ .color = recv_west_color });
+    @initialize_queue(north_iq, .{ .color = recv_north_color });
+    @initialize_queue(south_iq, .{ .color = recv_south_color });
   }
 
   @export_symbol(A_ptr, "A");

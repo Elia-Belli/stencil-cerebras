@@ -39,9 +39,9 @@ elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 # Stencil
 coefficients = get_coefficients(args.stencil, halo)
-# coefficients = np.array([ 0, 0, 0,
-#                           0, 0, 0,
-#                           0, 0, 1], dtype=np.float32)
+coefficients = np.array([ 0, 0, 1,
+                          0, 0, 0,
+                          0, 0, 0], dtype=np.float32)
 
 c_tiled = np.tile(coefficients, w*h)
 

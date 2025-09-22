@@ -46,9 +46,6 @@ const north_color_2: color = @get_color(5);
 const south_color_1: color = @get_color(6);
 const south_color_2: color = @get_color(7);
 
-const se_color_1: color = @get_color(8);
-const se_color_2: color = @get_color(9);
-
 const memcpy = @import_module("<memcpy/get_params>", .{
   .width = kernel_dim_x,
   .height = kernel_dim_y
