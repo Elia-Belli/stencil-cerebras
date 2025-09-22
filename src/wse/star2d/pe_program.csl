@@ -153,30 +153,16 @@ fn send_halo() void {
   send_completed = 0; // reset counter
 
   // edges DSDs
-  var south_halo_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[M*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
-  var north_halo_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
+  var south_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[M*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
+  var north_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
+  var east_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
+  var west_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
 
-  var east_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
-  var west_halo_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
-
-  if(idx == 0){
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(idx == width -1) {
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
-  }else{
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
-  }
+  if(idx < width-1) { @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});}  // send east
+  if(idx > 0)       { @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});}  // send west
   
-  if(idy == 0){
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(idy == height -1){
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
-  }else{
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
-  }
-  
+  if(idy < height-1)  { @fmovs(south_out_dsd, south_edge_dsd,.{ .async = true, .activate = south_id});}  // send south
+  if(idy > 0)         { @fmovs(north_out_dsd, north_edge_dsd,.{ .async = true, .activate = north_id});}  // send north
 }
 
 // completed send callbacks
