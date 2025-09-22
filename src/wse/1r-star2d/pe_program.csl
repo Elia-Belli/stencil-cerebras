@@ -157,24 +157,11 @@ fn send_halo() void {
   var north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[N+3],       .stride = 1,   .extent = N});
   var south_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[(N+2)*M +1],.stride = 1,   .extent = N});
 
-  if(idx == 0){
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-  }else if(idx == width -1) {
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
-  }else{
-    @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});  // send east
-    @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});  // send west
-  }
-  
-  if(idy == 0){
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
-  }else if(idy == height -1){
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
-  }else{
-    @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});  // send north
-    @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});  // send south
-  }
-  
+  if(idx < width-1) { @fmovs(east_out_dsd, east_halo_dsd, .{ .async = true, .activate = east_id});}  // send east
+  if(idx > 0)       { @fmovs(west_out_dsd, west_halo_dsd, .{ .async = true, .activate = west_id});}  // send west
+
+  if(idy < height-1)  { @fmovs(south_out_dsd, south_halo_dsd,.{ .async = true, .activate = south_id});}  // send south
+  if(idy > 0)         { @fmovs(north_out_dsd, north_halo_dsd,.{ .async = true, .activate = north_id});}  // send north  
 }
 
 // completed send callbacks
@@ -210,7 +197,7 @@ task west_end() void {
 
 // RECV
 var west_count:  i16 = 0;
-var east_count: i16 = 0;
+var east_count:  i16 = 0;
 var north_count: i16 = 0;
 var south_count: i16 = 0;
 
