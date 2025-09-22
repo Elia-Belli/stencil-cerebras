@@ -2,11 +2,11 @@
 
 : "${kernel_dim_x:=4}"
 : "${kernel_dim_y:=4}"
-: "${inp_rows:=64}"
-: "${inp_cols:=64}"
+: "${inp_rows:=256}"
+: "${inp_cols:=256}"
 : "${iterations:=1}"
 : "${radius:=1}"
-: "${arch:=wse2}"
+: "${arch:=wse3}"
 
 fabric_dim_x=$((7 + kernel_dim_x))
 fabric_dim_y=$((2 + kernel_dim_y))

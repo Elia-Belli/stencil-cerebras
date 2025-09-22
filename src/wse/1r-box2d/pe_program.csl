@@ -28,18 +28,21 @@ param send_south_color: color;
 param recv_north_color: color;
 
 // Queues IDs
-// These input queues are bound to tasks for WSE-3,
+// These input queues are bound to data tasks for WSE-3,
 // so they do not have associated microthreaded operations
-const east_iq = @get_input_queue(2);
-const west_iq = @get_input_queue(3);
+const east_iq  = @get_input_queue(2);
+const west_iq  = @get_input_queue(3);
 const north_iq = @get_input_queue(4);
 const south_iq = @get_input_queue(5);
 
 // These queues are used in microthreaded operations on both WSE-2 and WSE-3
-const east_oq = @get_output_queue(2);
-const west_oq = @get_output_queue(3);
+const east_oq  = @get_output_queue(2);  
+const west_oq  = @get_output_queue(3);
 const north_oq = @get_output_queue(4);
 const south_oq = @get_output_queue(5);
+
+const ut6 = @get_ut_id(6);
+const ut7 = @get_ut_id(7);
 
 // Task IDs
 // On WSE-2, data task IDs are created from colors; on WSE-3, from input queues
@@ -245,14 +248,12 @@ task south_ctrl() void {
   recv_callback();
 }
 
-//const ut7 = @get_ut_id(7);
-
 task north_ctrl(forwarded: u16) void {
   
   // if i have to forward ne corner, and i havent already forwarded it : forward  
   if((idx > 0 and idy > 0) and (forwarded == 0)){ 
     var west_frwd_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_ptr[halo], .extent = 1});
-    @fmovs(ur_out_dsd, west_frwd_dsd, .{.async = true, .activate = west_id}); // .ut_id = ut7,
+    @fmovs(ur_out_dsd, west_frwd_dsd, .{.async = true, .ut_id = ut3, .activate = west_id}); 
     // provvisorio, altrimenti non parte il callback siccome non sto ricevendo il forward da nord e stalla
     @block(recv_north_task_id);
     north_halo_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[halo], .extent = 1});
@@ -394,13 +395,13 @@ comptime {
 
   // On WSE-3, we must explicitly initialize input and output queues
   if (@is_arch("wse3")) {
-    @initialize_queue(east_oq, .{ .color = send_east_color });
-    @initialize_queue(west_oq, .{ .color = send_west_color });
+    @initialize_queue(east_oq,  .{ .color = send_east_color });
+    @initialize_queue(west_oq,  .{ .color = send_west_color });
     @initialize_queue(north_oq, .{ .color = send_north_color });
     @initialize_queue(south_oq, .{ .color = send_south_color });
     
-    @initialize_queue(east_iq, .{ .color = recv_east_color });
-    @initialize_queue(west_iq, .{ .color = recv_west_color });
+    @initialize_queue(east_iq,  .{ .color = recv_east_color });
+    @initialize_queue(west_iq,  .{ .color = recv_west_color });
     @initialize_queue(north_iq, .{ .color = recv_north_color });
     @initialize_queue(south_iq, .{ .color = recv_south_color });
   }

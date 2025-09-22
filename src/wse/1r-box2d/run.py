@@ -164,4 +164,4 @@ if(verbose):
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r (reusing send colors)', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r (ctrl + dsd + ne)', file=f)
