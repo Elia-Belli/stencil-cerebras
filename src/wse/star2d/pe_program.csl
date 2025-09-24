@@ -62,7 +62,7 @@ const north_id : local_task_id = @get_local_task_id(11);
 const south_id : local_task_id = @get_local_task_id(12);
 const east_id : local_task_id = @get_local_task_id(13);
 const west_id : local_task_id = @get_local_task_id(14);
-const wait_send_task_id : local_task_id = @get_local_task_id(15);
+const sync_task_id : local_task_id = @get_local_task_id(15);
 
 // Control Task IDs
 const south_ctrl_id : control_task_id = @get_control_task_id(40);
@@ -150,8 +150,6 @@ fn init() void {
 // SEND
 fn send_halo() void {
 
-  send_completed = 0; // reset counter
-
   // edges DSDs
   var south_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[M*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
   var north_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[halo*(line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
@@ -178,22 +176,22 @@ const west_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &west_ctrl_e
 var send_completed: i8 = 0;
 task north_end() void { 
   send_completed += 1; 
-  @mov32(north_ctrl_dsd, north_ctrl_encoded_dsd, .{.async = true});
+  @mov32(north_ctrl_dsd, north_ctrl_encoded_dsd, .{.async = true, .activate = sync_task_id});
 }
 
 task south_end() void {
   send_completed += 1;
-  @mov32(south_ctrl_dsd, south_ctrl_encoded_dsd, .{.async = true});
+  @mov32(south_ctrl_dsd, south_ctrl_encoded_dsd, .{.async = true, .activate = sync_task_id});
 }
 
 task east_end() void { 
   send_completed += 1; 
-  @mov32(east_ctrl_dsd, east_ctrl_encoded_dsd, .{.async = true});
+  @mov32(east_ctrl_dsd, east_ctrl_encoded_dsd, .{.async = true, .activate = sync_task_id});
 }
 
 task west_end() void { 
   send_completed += 1;
-  @mov32(west_ctrl_dsd, west_ctrl_encoded_dsd, .{.async = true});
+  @mov32(west_ctrl_dsd, west_ctrl_encoded_dsd, .{.async = true, .activate = sync_task_id});
 }
 
 // RECV
@@ -255,13 +253,17 @@ task east_ctrl() void {
 var recv_completed: i8 = 0;
 fn recv_callback() void {
   recv_completed += 1;
-  if(recv_completed == n_sides) @activate(wait_send_task_id);
+  @activate(sync_task_id);
 }
 
 // wait for all sends to finish --> COMPUTE
-task wait_send() void {
-  if(send_completed == n_sides) { @activate(stencil_task_id);}
-  else { @activate(wait_send_task_id); }
+task sync() void {
+  if(send_completed == n_sides and recv_completed == n_sides){
+    send_completed = 0;
+    recv_completed = 0;
+
+    @activate(stencil_task_id);
+  } 
 }
 
 // COMPUTE
@@ -305,7 +307,6 @@ task stencil() void {
   A_ptr     = A_aux_ptr;
   A_aux_ptr = temp;
 
-  recv_completed = 0;
   @unblock(recv_north_task_id);
   @unblock(recv_south_task_id);
   @unblock(recv_west_task_id);
@@ -327,7 +328,7 @@ comptime {
   @bind_local_task(west_end, west_id);
   @bind_local_task(north_end, north_id);
   @bind_local_task(south_end, south_id);
-  @bind_local_task(wait_send, wait_send_task_id);
+  @bind_local_task(sync, sync_task_id);
 
   @bind_data_task(recv_west, recv_west_task_id);
   @bind_data_task(recv_east, recv_east_task_id);
