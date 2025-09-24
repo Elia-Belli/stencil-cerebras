@@ -26,7 +26,9 @@ halo = int(compile_data['params']['radius'])
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
-A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+# A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+# A = np.reshape([1 for _ in range(0,M*N)], (M,N)).astype(np.float32)
+
 
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
@@ -39,9 +41,9 @@ elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 # Stencil
 coefficients = get_coefficients(args.stencil, halo)
-coefficients = np.array([ 0, 0, 1,
-                          0, 0, 0,
-                          0, 0, 0], dtype=np.float32)
+# coefficients = np.array([ 1, 1, 1,
+#                           1, 1, 1,
+#                           1, 1, 1], dtype=np.float32)
 
 c_tiled = np.tile(coefficients, w*h)
 
@@ -164,4 +166,4 @@ if(verbose):
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r (ctrl + dsd + ne)', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r (ctrl + no dsd + sync-forward)', file=f)
