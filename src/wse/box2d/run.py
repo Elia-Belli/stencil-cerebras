@@ -21,24 +21,45 @@ h = int(compile_data['params']['kernel_dim_y'])
 N = int(compile_data['params']['N'])
 M = int(compile_data['params']['M'])
 iterations = int(compile_data['params']['iterations'])
-
+halo = int(compile_data['params']['radius'])
 
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
-#A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
-halo = 2
+A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+#A = np.reshape([1 for _ in range(0,M*N)], (M,N)).astype(np.float32)
+
+
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
 if (N % w != 0): pad_y = w - (N%w)
 pe_M = (M + pad_x) // h
 pe_N = (N + pad_y) // w
-tiled_shape = (pe_M, pe_N)
-elements_per_PE = pe_M * pe_N
+tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
+elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
 
 
 # Stencil
-coefficients = np.array([0.0625, 0.0625, 0.0625, 0.0625, -1.0, 0.0625, 0.0625, 0.0625, 0.0625], dtype=np.float32)
+coefficients = get_coefficients(args.stencil, halo)
+
+# coefficients = np.array([ 1, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0, 0, 0,], dtype=np.float32)
+#coefficients = np.array([ 1 for _ in range(81)], dtype = np.float32)
+
+# coefficients = np.array([ 0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0,
+#                           0, 0, 0, 0, 0,
+#                           0, 0, 0, 1, 1,
+#                           0, 0, 0, 1, 1,], dtype=np.float32)
+# coefficients = np.array([ 0, 0, 0,
+#                           0, 0, 0,
+#                           0, 0, 1 ], dtype=np.float32)
+
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
@@ -63,7 +84,7 @@ runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=F
 print("\nCopying A onto Device...")
 
 # Load coefficients
-runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 9, streaming=False,
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, len(coefficients), streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 print("DONE!")
 print("Loading coefficients...")
@@ -81,7 +102,8 @@ if verify:
   print("DONE!")
   print("Copying back y_result...")
 
-  y_result = y_result.reshape(w, h, *tiled_shape).transpose(0, 2, 1, 3)
+  y_result = y_result.reshape(w, h, *tiled_shape)
+  y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
   y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
 # Retrieve timings
@@ -103,7 +125,7 @@ print("DONE!\n")
 if verify:
   print("Checking Result")
 
-  y_expected = cpu_stencil_2r(A.copy(), M, N, coefficients, iterations)
+  y_expected = cpu_stencil(A.copy(), M, N, coefficients, halo, iterations)
 
   if(verbose):
     print(f'Input:\n{A.reshape(M,N)}\n')
@@ -118,7 +140,7 @@ if verify:
     for i in y_expected:
       print(f'{i}', file=f)  
 
-  np.testing.assert_allclose(y_result, y_expected, atol=0)
+  np.testing.assert_allclose(y_result, y_expected, atol=0, rtol=0)
   print("SUCCESS!\n")
 
 
@@ -142,7 +164,7 @@ for x in range(w):
       max_w = x
       max_h = y
 
-flops = (M*N) * 9 * 2 * iterations
+flops = (M*N) * len(coefficients) * 2 * iterations 
 cells = (M*N) * iterations
 time = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
 tile_cells = cells/(h*w)
@@ -159,4 +181,4 @@ if(verbose):
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star-2r', file=f)
+  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},box2d-{halo}r', file=f)
