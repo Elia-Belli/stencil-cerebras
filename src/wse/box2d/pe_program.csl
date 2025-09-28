@@ -15,6 +15,8 @@ param radius: i16;
 
 param M: i16; // local matrix rows
 param N: i16; // local matrix cols
+param pad_x: i16; // padding in x direction
+param pad_y: i16; // padding in y direction
 
 // Colors
 param send_east_color: color;
@@ -407,6 +409,16 @@ task stencil() void {
       a_dsd = @increment_dsd_offset(a_dsd, 1, f32);   
     }
     a_dsd = @increment_dsd_offset(a_dsd, line-halo, f32);   
+  }
+
+  // reset pad values to 0
+  if(pad_x > 0){
+    var pad_x_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo+N-pad_x], .stride = .{1, line-pad_x+1}, .extent = .{col, pad_x}});
+    @fmovs(pad_x_dsd, 0.0);
+  }
+  if(pad_y > 0){
+    var pad_y_dsd = @get_dsd(mem1d_dsd, .{.base_address = &A_aux_ptr[(halo+M-pad_y)*line], .stride = 1, .extent = line*pad_y});
+    @fmovs(pad_y_dsd, 0.0);
   }
 
   temp      = A_ptr;

@@ -96,83 +96,102 @@ layout {
     .send_south_color = south_color_2, .recv_north_color = south_color_1
   }; 
 
+  var pe_pad_x: i16 = 0;
+  var pe_pad_y: i16 = 0;
+
   // Tile Code
-  for (@range(i16, kernel_dim_x)) |pe_x| {
-    for (@range(i16, kernel_dim_y)) |pe_y| {
-      if((pe_x % 2) == 0 and (pe_y % 2 == 0)){
-        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
-        .memcpy_params = memcpy.get_params(pe_x),
-        .M = pe_M, .N = pe_N
+  for (@range(i16, kernel_dim_x)) |idx| {
+    for (@range(i16, kernel_dim_y)) |idy| {
+      
+      var pe_n = ((idx+1) * pe_N -1); // last column index of the current PE
+      var pe_m = ((idy+1) * pe_M -1); // last row index of the current PE
+
+      pe_pad_x = 0;
+      pe_pad_y = 0;
+
+      if(pe_n > N-1){
+        pe_pad_x = (pe_n - N + 1) % pe_N;
+        if(pe_pad_x == 0) {pe_pad_x = 1;}
+      }
+      if(pe_m > M-1){
+        pe_pad_y = (pe_m - M + 1) % pe_M;
+        if(pe_pad_y == 0) {pe_pad_y = 1;}
+      }
+
+      if((idx % 2) == 0 and (idy % 2 == 0)){
+        @set_tile_code(idx, idy, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(idx),
+        .M = pe_M, .N = pe_N, .pad_x = pe_pad_x, .pad_y = pe_pad_y
         }, @concat_structs(common_params, @concat_structs(even_col_params, even_row_params))));
-      }else if ((pe_x % 2) == 0 and (pe_y % 2 == 1)){
-        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
-        .memcpy_params = memcpy.get_params(pe_x),
-        .M = pe_M, .N = pe_N
+      }else if ((idx % 2) == 0 and (idy % 2 == 1)){
+        @set_tile_code(idx, idy, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(idx),
+        .M = pe_M, .N = pe_N, .pad_x = pe_pad_x, .pad_y = pe_pad_y
         }, @concat_structs(common_params, @concat_structs(even_col_params, odd_row_params))));
-      }else if((pe_x % 2) == 1 and (pe_y % 2 == 0)){
-        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
-        .memcpy_params = memcpy.get_params(pe_x),
-        .M = pe_M, .N = pe_N
+      }else if((idx % 2) == 1 and (idy % 2 == 0)){
+        @set_tile_code(idx, idy, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(idx),
+        .M = pe_M, .N = pe_N, .pad_x = pe_pad_x, .pad_y = pe_pad_y
         }, @concat_structs(common_params, @concat_structs(odd_col_params, even_row_params))));
       }else{
-        @set_tile_code(pe_x, pe_y, "pe_program.csl", @concat_structs(.{
-        .memcpy_params = memcpy.get_params(pe_x),
-        .M = pe_M, .N = pe_N
+        @set_tile_code(idx, idy, "pe_program.csl", @concat_structs(.{
+        .memcpy_params = memcpy.get_params(idx),
+        .M = pe_M, .N = pe_N, .pad_x = pe_pad_x, .pad_y = pe_pad_y
         }, @concat_structs(common_params, @concat_structs(odd_col_params, odd_row_params))));
       }
     }
   }
 
   // Routing Configurations
-  for (@range(i16, kernel_dim_x)) |pe_x| {
-    for (@range(i16, kernel_dim_y)) |pe_y| {
-      if (pe_x % 2 == 0){
-        if(pe_x == 0){
-          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
-        }else if(pe_x == kernel_dim_x - 1){
-          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+  for (@range(i16, kernel_dim_x)) |idx| {
+    for (@range(i16, kernel_dim_y)) |idy| {
+      if (idx % 2 == 0){
+        if(idx == 0){
+          @set_color_config(idx, idy, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(idx, idy, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+        }else if(idx == kernel_dim_x - 1){
+          @set_color_config(idx, idy, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }else{
-          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
-          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(idx, idy, east_color_2, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, west_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(idx, idy, west_color_2, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
         }
       }else{
-        if(pe_x == kernel_dim_x - 1){
-          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+        if(idx == kernel_dim_x - 1){
+          @set_color_config(idx, idy, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }else{
-          @set_color_config(pe_x, pe_y, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, east_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
-          @set_color_config(pe_x, pe_y, west_color_1, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
+          @set_color_config(idx, idy, east_color_1, .{.routes= .{ .rx = .{WEST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, east_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});
+          @set_color_config(idx, idy, west_color_1, .{.routes= .{ .rx = .{EAST}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, west_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{WEST}}});
         }
       }
 
-      if(pe_y % 2 == 0){
-        if(pe_y == 0){
-          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
-        }else if(pe_y == kernel_dim_y-1){
-          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+      if(idy % 2 == 0){
+        if(idy == 0){
+          @set_color_config(idx, idy, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+        }else if(idy == kernel_dim_y-1){
+          @set_color_config(idx, idy, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(idx, idy, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }else{
-          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
-          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, north_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(idx, idy, north_color_2, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, south_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+          @set_color_config(idx, idy, south_color_2, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }
       }else{
-        if(pe_y == kernel_dim_y-1){
-          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+        if(idy == kernel_dim_y-1){
+          @set_color_config(idx, idy, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(idx, idy, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
         }else{
-          @set_color_config(pe_x, pe_y, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
-          @set_color_config(pe_x, pe_y, north_color_1, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
-          @set_color_config(pe_x, pe_y, south_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
+          @set_color_config(idx, idy, north_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{NORTH}}});
+          @set_color_config(idx, idy, north_color_1, .{.routes= .{ .rx = .{SOUTH}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, south_color_1, .{.routes= .{ .rx = .{NORTH}, .tx = .{RAMP}}});
+          @set_color_config(idx, idy, south_color_2, .{.routes= .{ .rx = .{RAMP}, .tx = .{SOUTH}}});
         }
       }
     }

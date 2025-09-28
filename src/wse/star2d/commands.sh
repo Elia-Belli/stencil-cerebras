@@ -1,11 +1,11 @@
 #!/bin/bash
 
-: "${kernel_dim_x:=2}"
-: "${kernel_dim_y:=2}"
-: "${inp_rows:=8}"
-: "${inp_cols:=8}"
-: "${iterations:=2}"
-: "${radius:=3}"
+: "${kernel_dim_x:=3}"
+: "${kernel_dim_y:=3}"
+: "${inp_rows:=11}"
+: "${inp_cols:=17}"
+: "${iterations:=3}"
+: "${radius:=2}"
 : "${arch:=wse3}"
 
 fabric_dim_x=$((7 + kernel_dim_x))

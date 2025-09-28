@@ -1,8 +1,8 @@
-: "${kernel_dim_x:=2}"
-: "${kernel_dim_y:=2}"
-: "${inp_rows:=8}"
-: "${inp_cols:=8}"
-: "${iterations:=2}"
+: "${kernel_dim_x:=4}"
+: "${kernel_dim_y:=4}"
+: "${inp_rows:=5}"
+: "${inp_cols:=7}"
+: "${iterations:=5}"
 : "${arch:=wse3}"
 
 fabric_dim_x=$((7 + kernel_dim_x))

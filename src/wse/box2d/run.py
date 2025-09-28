@@ -49,7 +49,7 @@ coefficients = get_coefficients(args.stencil, halo)
 #                           0, 0, 0, 0, 0, 0, 0,
 #                           0, 0, 0, 0, 0, 0, 0,
 #                           0, 0, 0, 0, 0, 0, 0,], dtype=np.float32)
-#coefficients = np.array([ 1 for _ in range(81)], dtype = np.float32)
+coefficients = np.array([ 1 for _ in range(49)], dtype = np.float32)
 
 # coefficients = np.array([ 0, 0, 0, 0, 0,
 #                           0, 0, 0, 0, 0,

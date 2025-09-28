@@ -26,7 +26,7 @@ halo = int(compile_data['params']['radius'])
 # Input
 np.random.seed(0)
 A = (np.random.rand(M,N) * 10).astype(np.float32)
-#A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
 
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
