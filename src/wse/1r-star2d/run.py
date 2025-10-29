@@ -43,10 +43,13 @@ coefficients = np.array([1,1,1,1,1], dtype=np.float32)
 c_tiled = np.tile(coefficients, w*h)
 
 # Construct a runner using SdkRuntime
-runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
-                    suppress_simfab_trace=suppress_traces, 
-                    simfab_numthreads=8,
-                    msg_level = "INFO")
+runner = SdkRuntime(
+    args.name,
+    cmaddr=args.cmaddr,
+    suppress_simfab_trace=suppress_traces, 
+    simfab_numthreads=8,
+    msg_level = "INFO"
+)
 
 # Get symbols
 A_symbol = runner.get_id('A')

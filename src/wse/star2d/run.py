@@ -146,9 +146,9 @@ for x in range(w):
 
 flops = (M*N) * len(coefficients) * 2 * iterations 
 cells = (M*N) * iterations
-time = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
+time_compute = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
 tile_cells = cells/(h*w)
-GStencil = cells / time * 10e-9
+GStencil = cells / time_compute * 10e-9
 
 if(verbose):
   print("Cycle Counts:")
@@ -156,9 +156,13 @@ if(verbose):
   print("Max cycles (", max_w, ", ", max_h, "): ", max_cycles)
 
   print("Total Cells: ", cells)
-  print(f'GStencil/s: {cells / time * 10e-9} (TOTAL)')
+  print(f'GStencil/s: {cells / time_compute * 10e-9} (TOTAL)')
 
 
 # print y_results to file
 with open("../../../logs/run_test_log.csv", "a") as f:
   print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star2d-{halo}r', file=f)
+
+
+real_sim= "sim" if(runner.is_simulation()) else "real"
+print(f'star2d-{halo}r,{args.arch}-{real_sim},{w},{h},{M},{N},{iterations},,{time_compute},,{GStencil}')

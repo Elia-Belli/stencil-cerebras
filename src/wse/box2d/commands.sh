@@ -1,10 +1,10 @@
 #!/bin/bash
 
-: "${kernel_dim_x:=4}"
-: "${kernel_dim_y:=4}"
-: "${inp_rows:=13}"
-: "${inp_cols:=21}"
-: "${iterations:=2}"
+: "${kernel_dim_x:=2}"
+: "${kernel_dim_y:=2}"
+: "${inp_rows:=16}"
+: "${inp_cols:=16}"
+: "${iterations:=1}"
 : "${radius:=3}"
 : "${arch:=wse3}"
 
@@ -24,7 +24,7 @@ radius:$radius,M:$inp_rows,N:$inp_cols,iterations:$iterations \
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, stencil radius: ${radius}, iterations: $iterations"
 
-    cs_python run.py --name out --arch=$arch --stencil "${stencil[@]}" --verify --verbose #--traces 
+    cs_python run.py --name out --arch=$arch --stencil "${stencil[@]}" --verify #--verbose #--traces 
 }
 
 # If script is sourced, don't auto-run

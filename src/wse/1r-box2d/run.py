@@ -108,7 +108,7 @@ print("DONE!\n")
 # ##      Check Result      ##
 # ############################
 if verify:
-  print("Checking Result")
+  print("Checking Result...")
 
   y_expected = cpu_stencil(A.copy(), M, N, coefficients, halo, iterations)
 

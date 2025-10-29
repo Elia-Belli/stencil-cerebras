@@ -1,8 +1,8 @@
-: "${kernel_dim_x:=4}"
-: "${kernel_dim_y:=4}"
-: "${inp_rows:=5}"
-: "${inp_cols:=7}"
-: "${iterations:=5}"
+: "${kernel_dim_x:=2}"
+: "${kernel_dim_y:=2}"
+: "${inp_rows:=16}"
+: "${inp_cols:=16}"
+: "${iterations:=1}"
 : "${arch:=wse3}"
 
 fabric_dim_x=$((7 + kernel_dim_x))
@@ -12,14 +12,13 @@ run_worker() {
     cslc --arch=$arch layout.csl \
     --fabric-dims=$fabric_dim_x,$fabric_dim_y \
     --fabric-offsets=4,1 \
-    --params=kernel_dim_x:$kernel_dim_x,kernel_dim_y:$kernel_dim_y,\
-M:$inp_rows,N:$inp_cols,iterations:$iterations \
+    --params=kernel_dim_x:$kernel_dim_x,kernel_dim_y:$kernel_dim_y,M:$inp_rows,N:$inp_cols,iterations:$iterations \
     -o out --memcpy --channels 1
 
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, iterations: $iterations"
 
-    cs_python run.py --name out --arch=$arch --verify --verbose #--traces
+    cs_python run.py --name out --arch=$arch --verify #--verbose #--traces
 }
 
 # If script is sourced, don't auto-run
