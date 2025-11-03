@@ -1,0 +1,10 @@
+{
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  },
+  "[csl]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  }
+}

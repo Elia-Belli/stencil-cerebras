@@ -1,6 +1,7 @@
 out/
 logs/
 simfab_traces/
+build/
 wio_flows_tmpdir*
 
 sim_stats.json
