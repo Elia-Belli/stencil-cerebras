@@ -4,6 +4,15 @@ import logging
 from cerebras.appliance import logger
 logging.basicConfig(level=logging.INFO)
 
+
+fabric_dim_x = 16
+fabric_dim_y = 16
+kernel_dim_x = fabric_dim_x + 7
+kernel_dim_y = fabric_dim_y + 7
+inp_rows = 1024
+inp_cols = 1024
+iterations = 1000
+
 # Instantiate compiler using a context manager
 # Disable version check to ignore appliance client and server version differences.
 with SdkCompiler(disable_version_check=True) as compiler:
