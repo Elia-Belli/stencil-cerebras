@@ -19,10 +19,11 @@ with open("artifact_path.json", "r", encoding="utf8") as f:
 # Disable version check to ignore appliance client and server version differences.
 with SdkLauncher(artifact_path, simulator=False, disable_version_check=True) as launcher:
 
-    # Transfer an additional file to the appliance,
-    # then write contents to stdout on appliance
+    # Transfer host program to the appliance,
     launcher.stage("run.py")
     launcher.stage("utils.py")
+    launcher.stage("star2d-1r.csv")
+
     response = launcher.run("echo \"ABOUT TO RUN IN THE APPLIANCE\"")
     print("Test response: ", response)
 
