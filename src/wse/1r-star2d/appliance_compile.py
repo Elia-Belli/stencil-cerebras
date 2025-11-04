@@ -19,7 +19,7 @@ args = parser.parse_args()
 # WSE3 cores
 fabric_dim_x = 762 
 fabric_dim_y = 1172
-channels = min(fabric_dim_y, 16)
+channels = min(args.kernel_dim_y, 16)
 
 # Instantiate compiler using a context manager
 # Disable version check to ignore appliance client and server version differences.
