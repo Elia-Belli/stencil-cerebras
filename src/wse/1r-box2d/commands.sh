@@ -15,7 +15,7 @@ run_worker() {
     --fabric-dims=$fabric_dim_x,$fabric_dim_y \
     --fabric-offsets=4,1 \
     --params=kernel_dim_x:$kernel_dim_x,kernel_dim_y:$kernel_dim_y,M:$inp_rows,N:$inp_cols,iterations:$iterations \
-    -o out --memcpy --channels 16
+    -o out --memcpy --channels 1
 
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, iterations: $iterations"

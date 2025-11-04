@@ -19,6 +19,7 @@ args = parser.parse_args()
 # WSE3 cores
 fabric_dim_x = 762 
 fabric_dim_y = 1172
+channels = min(fabric_dim_y, 16)
 
 # Instantiate compiler using a context manager
 # Disable version check to ignore appliance client and server version differences.
@@ -28,7 +29,7 @@ with SdkCompiler(disable_version_check=True) as compiler:
     artifact_path = compiler.compile(
         ".",
         "layout.csl",
-        f'--fabric-dims={fabric_dim_x},{fabric_dim_y} --fabric-offsets=4,1 --params=kernel_dim_x:{args.kernel_dim_x},kernel_dim_y:{args.kernel_dim_y},M:{args.inp_rows},N:{args.inp_cols},iterations:{args.iterations} -o out --memcpy --channels=16 --arch=wse3',
+        f'--fabric-dims={fabric_dim_x},{fabric_dim_y} --fabric-offsets=4,1 --params=kernel_dim_x:{args.kernel_dim_x},kernel_dim_y:{args.kernel_dim_y},M:{args.inp_rows},N:{args.inp_cols},iterations:{args.iterations} -o out --memcpy --channels={channels} --arch=wse3',
         "."
     )
 
