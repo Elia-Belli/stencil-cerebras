@@ -23,7 +23,8 @@ iterations = int(data['params']['iterations'])
 radius = 1
 
 # Input
-A = generate_input(M, N, "diagonal", value=10)
+heat_value = 10
+A = generate_input(M, N, "diagonal", value=heat_value)
 A_prepared = prepare_input(A, M, N, h, w, radius)
 
 coefficients = get_coefficients("star2d", radius)

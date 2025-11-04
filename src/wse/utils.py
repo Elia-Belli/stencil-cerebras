@@ -143,19 +143,24 @@ def star_stencil(A, m, n, c, radius, iters):
       for j in range(n):
         idx = i*n+j
 
-        y_aux[idx] = c[2*radius] * y[idx] # center
+        if(i == j): 
+          y_aux[idx] = y[idx]
+        else:
+          y_aux[idx] = c[2*radius] * y[idx] # center
 
-        for r in range(radius): # north
-          if(i-(radius-r) >= 0): y_aux[idx] += c[r] * y[(i-(radius-r))*n+j]
+          for r in range(radius): # north
+            if(i-(radius-r) >= 0): y_aux[idx] += c[r] * y[(i-(radius-r))*n+j]
 
-        for r in range(radius): # south
-          if(i+(radius-r) < m): y_aux[idx] += c[len(c)-r-1] * y[(i+(radius-r))*n+j]
+          for r in range(radius): # south
+            if(i+(radius-r) < m): y_aux[idx] += c[len(c)-r-1] * y[(i+(radius-r))*n+j]
 
-        for r in range(radius): # west
-          if(j-(radius-r) >= 0): y_aux[idx] += c[radius+r] * y[i*n+j-(radius-r)]
+          for r in range(radius): # west
+            if(j-(radius-r) >= 0): y_aux[idx] += c[radius+r] * y[i*n+j-(radius-r)]
 
-        for r in range(radius): # east
-          if(j+(radius-r) < n): y_aux[idx] += c[2*radius + r + 1] * y[i*n+j+(radius-r)]
+          for r in range(radius): # east
+            if(j+(radius-r) < n): y_aux[idx] += c[2*radius + r + 1] * y[i*n+j+(radius-r)]
+
+        
 
     y, y_aux = y_aux, y
   
@@ -172,39 +177,42 @@ def box_stencil(A, m, n, c, radius, iters):
       for j in range(n):
         idx = i*n+j
 
-        y_aux[idx] = c[radius*(s+1)] * y[idx]  # C
+        if(i == j): 
+          y_aux[idx] = y[idx]
+        else:
+          y_aux[idx] = c[radius*(s+1)] * y[idx]  # C
 
-        for r in range(0, radius):
-          if(i-(radius-r) >= 0): y_aux[idx] += c[radius + (r)*s] * y[(i-(radius-r))*n+j]  # N
-        
-        for r in range(0, radius):
-          if(i+(radius-r) <  m): y_aux[idx] += c[radius + (s-1-r)*s] * y[(i+(radius-r))*n+j]  # S
+          for r in range(0, radius):
+            if(i-(radius-r) >= 0): y_aux[idx] += c[radius + (r)*s] * y[(i-(radius-r))*n+j]  # N
+          
+          for r in range(0, radius):
+            if(i+(radius-r) <  m): y_aux[idx] += c[radius + (s-1-r)*s] * y[(i+(radius-r))*n+j]  # S
 
-        for r in range(0, radius):
-          if(j-(radius-r) >= 0): y_aux[idx] += c[(radius*s) + r] * y[i*n+ j-(radius-r)]  # W
+          for r in range(0, radius):
+            if(j-(radius-r) >= 0): y_aux[idx] += c[(radius*s) + r] * y[i*n+ j-(radius-r)]  # W
 
-        for r in range(0, radius):
-          if(j+(radius-r) <  n): y_aux[idx] += c[(radius+1)*s - (r+1)] * y[i*n+ j+(radius-r)]  # E
+          for r in range(0, radius):
+            if(j+(radius-r) <  n): y_aux[idx] += c[(radius+1)*s - (r+1)] * y[i*n+ j+(radius-r)]  # E
 
-        for ri in range(0, radius):
-          for rj in range(0, radius):
-            if(i-(radius-ri) >=0 and j-(radius-rj) >=0):
-              y_aux[idx] += c[ri * s + rj] * y[(i-(radius-ri))*n + j-(radius-rj)]  # NW
-        
-        for ri in range(0, radius):
-          for rj in range(0, radius):
-            if(i-(radius-ri) >=0 and j+(radius-rj) < n):
-              y_aux[idx] += c[ri * s + (s -rj-1)] * y[(i-(radius-ri))*n + j+(radius-rj)]  # NE
+          for ri in range(0, radius):
+            for rj in range(0, radius):
+              if(i-(radius-ri) >=0 and j-(radius-rj) >=0):
+                y_aux[idx] += c[ri * s + rj] * y[(i-(radius-ri))*n + j-(radius-rj)]  # NW
+          
+          for ri in range(0, radius):
+            for rj in range(0, radius):
+              if(i-(radius-ri) >=0 and j+(radius-rj) < n):
+                y_aux[idx] += c[ri * s + (s -rj-1)] * y[(i-(radius-ri))*n + j+(radius-rj)]  # NE
 
-        for ri in range(0, radius):
-          for rj in range(0, radius):
-            if(i+(radius-ri) < m and j-(radius-rj) >= 0):
-              y_aux[idx] += c[(s-1 - ri)*s + rj] * y[(i+(radius-ri))*n + j-(radius-rj)]  # SW
+          for ri in range(0, radius):
+            for rj in range(0, radius):
+              if(i+(radius-ri) < m and j-(radius-rj) >= 0):
+                y_aux[idx] += c[(s-1 - ri)*s + rj] * y[(i+(radius-ri))*n + j-(radius-rj)]  # SW
 
-        for ri in range(0, radius):
-          for rj in range(0, radius):
-            if(i+(ri+1) < m and j+(rj+1) < n):
-              y_aux[idx] += c[(radius+1 + ri)*s + (radius+1 +rj)] * y[(i+1+ri)*n + j+1+rj]  # SE
+          for ri in range(0, radius):
+            for rj in range(0, radius):
+              if(i+(ri+1) < m and j+(rj+1) < n):
+                y_aux[idx] += c[(radius+1 + ri)*s + (radius+1 +rj)] * y[(i+1+ri)*n + j+1+rj]  # SE
 
     y, y_aux = y_aux, y
 

@@ -1,7 +1,11 @@
 import json
 import os
+import logging
 
 from cerebras.sdk.client import SdkLauncher
+from cerebras.appliance import logger
+
+logging.basicConfig(level=logging.INFO)
 
 # read the compile artifact_path from the json file
 with open("artifact_path.json", "r", encoding="utf8") as f:
@@ -24,9 +28,9 @@ with SdkLauncher(artifact_path, simulator=False, disable_version_check=True) as 
 
     # Run the original host code as-is on the appliance,
     # using the same cmd as when using the Singularity container
-    response = launcher.run("cs_python run.py --name out --arch wse3 --verify --cmaddr %CMADDR%")
+    response = launcher.run("cs_python run.py --name out --arch wse3 --cmaddr %CMADDR%")
     print("Host code execution response: ", response)
 
     # Fetch files from the appliance
-    launcher.download_artifact("star2d-1r.csv")
+    launcher.download_artifact("star2d-1r.csv", "./out/")
     

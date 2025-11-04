@@ -8,15 +8,15 @@ const utils = @import_module("my_utils.csl", .{.width = width, .height = height}
 param memcpy_params: comptime_struct;
 
 // pe parameters  
-param width: i16;
-param height: i16;
+param width: i32;
+param height: i32;
 param iterations: i32;
-param radius: i16;
+param radius: i32;
 
-param M: i16; // local matrix rows
-param N: i16; // local matrix cols
-param pad_x: i16; // padding in x direction
-param pad_y: i16; // padding in y direction
+param M: i32; // local matrix rows
+param N: i32; // local matrix cols
+param pad_x: i32; // padding in x direction
+param pad_y: i32; // padding in y direction
 
 // Colors
 param send_east_color: color;
@@ -76,11 +76,11 @@ const west_ctrl_id : control_task_id = @get_control_task_id(43);
 //          48 kB of global memory            //    
 ////////////////////////////////////////////////
 
-var idx: i16;
-var idy: i16;
-var n_sides: u16;
-var n_corners: u16;
-const halo: i16 = radius;
+var idx: i32;
+var idy: i32;
+var n_sides: i32;
+var n_corners: i32;
+const halo: i32 = radius;
 
 const line = (N + 2*halo);  // line size
 const col = (M + 2*halo);   // col size
@@ -145,8 +145,8 @@ fn final_tsc() void {
 
 fn init() void {
 
-  idx = @as(i16, layout_mod.get_x_coord());
-  idy = @as(i16, layout_mod.get_y_coord());
+  idx = @as(i32, layout_mod.get_x_coord());
+  idy = @as(i32, layout_mod.get_y_coord());
   n_sides = utils.sides(idx, idy);
   n_corners = utils.corners(idx, idy);
 
@@ -184,7 +184,7 @@ const south_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &south_ctrl
 const east_ctrl_encoded_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &east_ctrl_encoded, .extent = 1});
 const west_ctrl_encoded_dsd  = @get_dsd(mem1d_dsd, .{.base_address = &west_ctrl_encoded, .extent = 1});
 
-var send_completed: u16 = 0;
+var send_completed: i32 = 0;
 
 task north_end() void { 
   send_completed += 1; 
@@ -207,25 +207,25 @@ task west_end() void {
 }
 
 // RECV
-var north_count : i16 = 0;
+var north_count : i32 = 0;
 task recv_north(data:f32) void{
   A_ptr[north_count + 1] = data;
   north_count +=1;
 }
 
-var south_count : i16 = 0;
+var south_count : i32 = 0;
 task recv_south(data:f32) void{
   A_ptr[(col-1)*line + south_count + 1] = data;
   south_count +=1;
 }
 
-var west_count : i16 = 0;
+var west_count : i32 = 0;
 task recv_west(data:f32) void{
   A_ptr[(west_count+1)*line] = data;
   west_count +=1;
 }
 
-var east_count : i16 = 0;
+var east_count : i32 = 0;
 task recv_east(data:f32) void{
   A_ptr[(east_count+1)*line + N+1] = data;
   east_count +=1;
@@ -257,7 +257,7 @@ task east_ctrl() void {
 }
 
 // completed recv callback --> complete all & wait for sends to finish
-var recv_completed: u16 = 0;
+var recv_completed: i32 = 0;
 fn recv_callback() void {
   recv_completed += 1;
   @activate(sync_task_id);
@@ -353,6 +353,13 @@ task stencil() void {
   // south-east
   a_dsd = @increment_dsd_offset(a_dsd, 2, f32);  
   @fmacs(aux_dsd, aux_dsd, a_dsd, coeff[8]);
+
+  // reset input point to original value
+  if(idx == idy){
+    for(@range(i32,0, M, 1)) |i|{
+      A_aux_ptr[(halo+i)*line + i + halo] = A_ptr[(halo+i)*line + i + halo];
+    }
+  }
 
   // reset pad values to 0
   if(pad_x > 0){

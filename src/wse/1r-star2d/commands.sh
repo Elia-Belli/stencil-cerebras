@@ -2,7 +2,7 @@
 : "${kernel_dim_y:=2}"
 : "${inp_rows:=16}"
 : "${inp_cols:=16}"
-: "${iterations:=1}"
+: "${iterations:=4}"
 : "${arch:=wse3}"
 
 fabric_dim_x=$((7 + kernel_dim_x))
@@ -18,7 +18,7 @@ run_worker() {
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, iterations: $iterations"
 
-    cs_python run.py --name out --arch=$arch --verify #--verbose #--traces
+    cs_python run.py --name out --arch=$arch --verify
 }
 
 # If script is sourced, don't auto-run

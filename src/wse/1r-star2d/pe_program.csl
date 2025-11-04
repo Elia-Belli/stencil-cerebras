@@ -86,7 +86,6 @@ const n: i32 = line*col;
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
 var coeff = @zeros([5]f32);
-const source_value: f32 = 10.0;
 
 // pointers 
 var A_ptr:      [*]f32 = &A;
@@ -292,8 +291,8 @@ task stencil() void {
 
   // reset input point to original value
   if(idx == idy){
-    for(@range(i32, M)) |i|{
-      A_ptr[i + i*N] = source_value;
+    for(@range(i32,0, M, 1)) |i|{
+      A_aux_ptr[(1+i)*line + i + 1] = A_ptr[(1+i)*line + i + 1];
     }
   }
 

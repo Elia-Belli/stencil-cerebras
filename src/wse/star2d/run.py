@@ -165,4 +165,5 @@ with open("../../../logs/run_test_log.csv", "a") as f:
 
 
 real_sim= "sim" if(runner.is_simulation()) else "real"
-print(f'star2d-{halo}r,{args.arch}-{real_sim},{w},{h},{M},{N},{iterations},,{time_compute},,{GStencil}')
+with open("../../../logs/weak_scaling.csv", "a") as f:
+  print(f'star2d-{halo}r,{args.arch}-{real_sim},{w},{h},{M},{N},{iterations},,{time_compute},,{GStencil}', file=f)

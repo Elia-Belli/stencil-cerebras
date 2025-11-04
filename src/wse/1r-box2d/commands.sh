@@ -11,8 +11,6 @@
 fabric_dim_x=$((7 + kernel_dim_x))
 fabric_dim_y=$((2 + kernel_dim_y))
 
-#stencil=(0.25 0.25 -1.0 0.25 0.25) 
-
 run_worker() {
     cslc --arch=$arch layout.csl \
     --fabric-dims=$fabric_dim_x,$fabric_dim_y \
@@ -23,7 +21,7 @@ run_worker() {
     echo ""
     echo "Running with kernel: ${kernel_dim_x}x${kernel_dim_y}, input: ${inp_rows}x${inp_cols}, stencil radius: ${radius}, iterations: $iterations"
 
-    cs_python run.py --cmaddr=$ip --name out --arch=$arch --stencil "${stencil[@]}" --verify #--verbose #--traces 
+    cs_python run.py --name out --arch=$arch --verify
 }
 
 # If script is sourced, don't auto-run
