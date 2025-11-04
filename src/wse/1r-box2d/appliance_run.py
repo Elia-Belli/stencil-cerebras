@@ -22,7 +22,7 @@ with SdkLauncher(artifact_path, simulator=False, disable_version_check=True) as 
     # Transfer host program to the appliance,
     launcher.stage("run.py")
     launcher.stage("utils.py")
-    launcher.stage("star2d-1r.csv")
+    launcher.stage("box2d-1r.csv")
 
     response = launcher.run("echo \"ABOUT TO RUN IN THE APPLIANCE\"")
     print("Test response: ", response)
@@ -33,5 +33,5 @@ with SdkLauncher(artifact_path, simulator=False, disable_version_check=True) as 
     print("Host code execution response: ", response)
 
     # Fetch files from the appliance
-    launcher.download_artifact("star2d-1r.csv", ".")
+    launcher.download_artifact("box2d-1r.csv", ".")
     

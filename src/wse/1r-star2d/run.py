@@ -59,10 +59,16 @@ runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=F
 runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
-start_time_compute = time.perf_counter()
 
 # Launch program
 runner.launch('compute', nonblock=False)
+
+start_time_compute = time.perf_counter()
+
+# Retrieve timings
+tsc = np.zeros((w*h*3), dtype=np.uint32)
+runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
+  streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
 
 end_time_compute = time.perf_counter()
 
@@ -70,11 +76,6 @@ end_time_compute = time.perf_counter()
 y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
 runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
-
-# Retrieve timings
-tsc = np.zeros((w*h*3), dtype=np.uint32)
-runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
-  streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
 
 end_time = time.perf_counter()
 

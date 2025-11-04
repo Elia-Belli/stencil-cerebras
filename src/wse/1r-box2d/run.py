@@ -20,7 +20,7 @@ h = int(data['params']['kernel_dim_y'])
 N = int(data['params']['N'])
 M = int(data['params']['M'])
 iterations = int(data['params']['iterations'])
-radius = int(data['params']['radius'])
+radius = 1
 
 
 # Input

@@ -11,7 +11,6 @@ param memcpy_params: comptime_struct;
 param width: i32;
 param height: i32;
 param iterations: i32;
-param radius: i32;
 
 param M: i32; // local matrix rows
 param N: i32; // local matrix cols
@@ -80,15 +79,14 @@ var idx: i32;
 var idy: i32;
 var n_sides: i32;
 var n_corners: i32;
-const halo: i32 = radius;
 
-const line = (N + 2*halo);  // line size
-const col = (M + 2*halo);   // col size
-const n: i32 = line * col; // total local matrix size with halo
+const line = (N + 2);  // line size
+const col = (M + 2);   // col size
+const n: i32 = line * col; // total local matrix size with 1
 
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
-var coeff = @zeros([(2*radius+1)*(2*radius+1)]f32);
+var coeff = @zeros([9]f32);
 
 // pointers 
 var A_ptr:      [*]f32 = &A;
@@ -103,20 +101,20 @@ var timer_buf     = @zeros([3]f32);
 var ptr_timer_buf: [*]f32 = &timer_buf;
 
 // DSDs
-const east_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_east_color, .output_queue = east_oq});
-const west_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = (M*halo), .fabric_color = send_west_color, .output_queue = west_oq});
-const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_north_color, .output_queue = north_oq});
-const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (N*halo), .fabric_color = send_south_color, .output_queue = south_oq});
+const east_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = M, .fabric_color = send_east_color, .output_queue = east_oq});
+const west_out_dsd  = @get_dsd(fabout_dsd, .{ .extent = M, .fabric_color = send_west_color, .output_queue = west_oq});
+const north_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N, .fabric_color = send_north_color, .output_queue = north_oq});
+const south_out_dsd = @get_dsd(fabout_dsd, .{ .extent = N, .fabric_color = send_south_color, .output_queue = south_oq});
 
 const north_ctrl_dsd = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_north_color, .control = true, .output_queue = north_oq});
 const south_ctrl_dsd = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_south_color, .control = true, .output_queue = south_oq});
 const east_ctrl_dsd  = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_east_color, .control = true, .output_queue = east_oq});
 const west_ctrl_dsd  = @get_dsd(fabout_dsd, .{.extent = 1, .fabric_color = send_west_color, .control = true, .output_queue = west_oq});
 
-const nw_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_south_color, .output_queue = south_oq});
-const ne_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_west_color, .output_queue = west_oq});
-const se_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_north_color, .output_queue = north_oq});
-const sw_out_dsd = @get_dsd(fabout_dsd, .{ .extent = (halo*halo), .fabric_color = send_east_color, .output_queue = east_oq});
+const nw_out_dsd = @get_dsd(fabout_dsd, .{ .extent = 1, .fabric_color = send_south_color, .output_queue = south_oq});
+const ne_out_dsd = @get_dsd(fabout_dsd, .{ .extent = 1, .fabric_color = send_west_color, .output_queue = west_oq});
+const se_out_dsd = @get_dsd(fabout_dsd, .{ .extent = 1, .fabric_color = send_north_color, .output_queue = north_oq});
+const sw_out_dsd = @get_dsd(fabout_dsd, .{ .extent = 1, .fabric_color = send_east_color, .output_queue = east_oq});
 
 // Utils Functions
 fn final_tsc() void {
@@ -160,10 +158,10 @@ fn init() void {
 fn send_edges() void {
 
   // edges DSDs
-  var south_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(M*line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
-  var north_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+halo], .stride = .{1,(2*halo)+1}, .extent = .{halo,N}});
-  var east_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+N], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}}); // extent(i,j) stride(j,i)
-  var west_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(halo*line)+halo], .stride = .{1,(N+halo)+1}, .extent = .{M, halo}});
+  var south_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(M*line)+1], .stride = .{1,(2)+1}, .extent = .{1,N}});
+  var north_edge_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(line)+1], .stride = .{1,(2)+1}, .extent = .{1,N}});
+  var east_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(line)+N], .stride = .{1,(N+1)+1}, .extent = .{M, 1}}); // extent(i,j) stride(j,i)
+  var west_edge_dsd  = @get_dsd(mem4d_dsd, .{.base_address = &A_ptr[(line)+1], .stride = .{1,(N+1)+1}, .extent = .{M, 1}});
 
   if(idx > 0)         { @fmovs(west_out_dsd, west_edge_dsd, .{ .async = true, .activate = west_id});}  // send west
   if(idx < width-1)   { @fmovs(east_out_dsd, east_edge_dsd, .{ .async = true, .activate = east_id});}  // send east
@@ -357,7 +355,7 @@ task stencil() void {
   // reset input point to original value
   if(idx == idy){
     for(@range(i32,0, M, 1)) |i|{
-      A_aux_ptr[(halo+i)*line + i + halo] = A_ptr[(halo+i)*line + i + halo];
+      A_aux_ptr[(1+i)*line + i + 1] = A_ptr[(1+i)*line + i + 1];
     }
   }
 

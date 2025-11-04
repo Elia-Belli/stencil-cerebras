@@ -29,7 +29,6 @@
 param kernel_dim_x: i32;
 param kernel_dim_y: i32;
 param iterations: i32;
-param radius: i32;
 
 // total matrix dimensions
 param M: i32;
@@ -70,13 +69,12 @@ layout {
   const pe_N = (N + pad_y) / kernel_dim_x;
 
   @comptime_assert(pe_M * pe_N <= 5329, "The number of elements per cores can't exceed 5041 per core");
-  @comptime_assert(pe_M >= radius and pe_N >= radius, "Each core must be able to fit the stencil radius");
+  @comptime_assert(pe_M >= 1 and pe_N >= 1, "Each core must be able to fit the stencil radius");
 
   const common_params = .{
     .width = kernel_dim_x,
     .height = kernel_dim_y,
-    .iterations = iterations,
-    .radius = radius
+    .iterations = iterations
   };
 
   const even_col_params = .{

@@ -291,7 +291,7 @@ task stencil() void {
 
   // reset input point to original value
   if(idx == idy){
-    for(@range(i32,0, M, 1)) |i|{
+    for(@range(i32, 0, M, 1)) |i|{
       A_aux_ptr[(1+i)*line + i + 1] = A_ptr[(1+i)*line + i + 1];
     }
   }
