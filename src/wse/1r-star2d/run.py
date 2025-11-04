@@ -2,25 +2,18 @@
 
 import json
 import numpy as np
-import math
-import logging
+import time
 
-from ..utils import *
+from utils import *
 
-from cerebras.appliance.pb.sdk.sdk_common_pb2 import MemcpyDataType, MemcpyOrder
-from cerebras.sdk.client import SdkRuntime
-from cerebras.sdk import sdk_utils
-from cerebras.appliance import logger
-
-logging.basicConfig(level=logging.INFO)
+from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
 
 # Read arguments
 args, verify = read_args()
 
 # Get parameters from compile metadata
-with open("artifact_path.json", "r", encoding="utf8") as f:
+with open(f"{args.name}/out.json", "r", encoding="utf8") as f:
     data = json.load(f)
-    artifact_path = data["artifact_path"]
 
 w = int(data['params']['kernel_dim_x'])
 h = int(data['params']['kernel_dim_y'])
@@ -30,7 +23,7 @@ iterations = int(data['params']['iterations'])
 radius = 1
 
 # Input
-A = generate_input(M, N, "random")
+A = generate_input(M, N, "diagonal", value=10)
 A_prepared = prepare_input(A, M, N, h, w, radius)
 
 coefficients = get_coefficients("star2d", radius)
@@ -44,38 +37,47 @@ pe_N = (N + pad_y) // w
 tiled_shape = (pe_M + 2*radius, pe_N + 2*radius)
 elements_per_PE = (pe_M + 2*radius) * (pe_N + 2*radius)
 
-# Instantiate a runner object using a context manager.
-# Set simulator=False if running on CS system within appliance.
-# Disable version check to ignore appliance client and server version differences.
-with SdkRuntime(artifact_path, simulator=False, disable_version_check=True) as runner:
+runner = SdkRuntime(args.name, cmaddr=args.cmaddr)
 
-  A_symbol = runner.get_id('A')
-  coeff_symbol = runner.get_id('c')
-  symbol_maxmin_time = runner.get_id("maxmin_time")
+runner.load()
+runner.run()
 
-  # Load matrix
-  A_prepared = prepare_input(A, M, N, h, w, radius)
-  runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
-    order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+A_symbol = runner.get_id('A')
+coeff_symbol = runner.get_id('c')
+symbol_maxmin_time = runner.get_id("maxmin_time")
 
-  # Load coefficients
-  runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
-    order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+# Load matrix
+A_prepared = prepare_input(A, M, N, h, w, radius)
 
-  # Launch program
-  runner.launch('compute', nonblock=False)
+start_time = time.perf_counter()
 
-  # Retrieve result
-  y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
-  runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
-    order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
-  # Retrieve timings
-  tsc = np.zeros((w*h*3), dtype=np.uint32)
-  runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
-    streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
-  maxmin_time_hwl = tsc.view(np.float32).reshape((h, w, 3))
+# Load coefficients
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
+# Launch program
+runner.launch('compute', nonblock=False)
+
+start_time_compute = time.perf_counter()
+
+# Retrieve result
+y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
+runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
+
+end_time_compute = time.perf_counter()
+
+# Retrieve timings
+tsc = np.zeros((w*h*3), dtype=np.uint32)
+runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
+  streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
+
+end_time = time.perf_counter()
+
+runner.stop()
 
 ####################
 ##  Check Result  ##
@@ -94,12 +96,18 @@ if verify:
 ##  Timestamps   ##
 ###################
 
-cycles = parse_tsc(w, h, data.view(np.float32).reshape((h, w, 3)))
-time = cycles["max"] / (875e6)
-GStencil = (M * N * iterations) / time * 10e-9
+cycles = parse_tsc(w, h, tsc.view(np.float32).reshape((h, w, 3)))
+time_device = cycles["max"] / (875e6)
+GStencil = (M * N * iterations) / time_device * 10e-9
 
-print(f'Time: {time} s')
+time_h2d = start_time_compute - start_time
+time_compute = end_time_compute - start_time_compute
+time_d2h = end_time - end_time_compute
+time_total = end_time - start_time
+
+print(f'Time (device): {time_device} s')
 print(f'GStencil/s: {GStencil}')
+print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{(M * N * iterations) / time_compute * 10e-9}')
 
 with open("star2d-1r.csv", "a") as f:
-  f.write(f'{w},{h},{M},{N},{iterations},0,{time},0,{GStencil}')
+  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil}\n')

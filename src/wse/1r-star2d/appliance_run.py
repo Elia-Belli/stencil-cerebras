@@ -17,17 +17,16 @@ with SdkLauncher(artifact_path, simulator=False, disable_version_check=True) as 
 
     # Transfer an additional file to the appliance,
     # then write contents to stdout on appliance
-    launcher.stage("additional_artifact.txt")
-    response = launcher.run(
-        "echo \"ABOUT TO RUN IN THE APPLIANCE\"",
-        "cat additional_artifact.txt",
-    )
+    launcher.stage("run.py")
+    launcher.stage("utils.py")
+    response = launcher.run("echo \"ABOUT TO RUN IN THE APPLIANCE\"")
     print("Test response: ", response)
 
     # Run the original host code as-is on the appliance,
     # using the same cmd as when using the Singularity container
-    response = launcher.run("cs_python run.py --name out --arch=wse3 --verify --cmaddr %CMADDR%")
+    response = launcher.run("cs_python run.py --name out --arch wse3 --verify --cmaddr %CMADDR%")
     print("Host code execution response: ", response)
 
     # Fetch files from the appliance
-    launcher.download_artifact("sim.log", "./output_dir/sim.log")
+    launcher.download_artifact("star2d-1r.csv")
+    

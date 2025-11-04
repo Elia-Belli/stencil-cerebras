@@ -26,13 +26,13 @@
 //   7                      16      25                    34
 //   8                      17      26                    35
 
-param kernel_dim_x: i16;
-param kernel_dim_y: i16;
-param iterations: i16;
+param kernel_dim_x: i32;
+param kernel_dim_y: i32;
+param iterations: i64;
 
 // total matrix dimensions
-param M: i16;
-param N: i16;
+param M: i32;
+param N: i32;
 
 // Colors
 const send_east_color_1: color = @get_color(0);
@@ -69,7 +69,7 @@ layout {
   const pe_M = (M + pad_y) / kernel_dim_y; 
   const pe_N = (N + pad_x) / kernel_dim_x;
 
-  @comptime_assert(pe_M * pe_N <= 5300, "The number of elements per cores can't exceed 5300 per core");
+  @comptime_assert(pe_M * pe_N <= 5300, "The number of elements per cores can't exceed 5300");
 
   const common_params = .{
     .width = kernel_dim_x,
@@ -94,12 +94,12 @@ layout {
     .send_south_color = send_south_color_2, .recv_north_color = send_south_color_1
   }; 
 
-  var pe_pad_x: i16 = 0;
-  var pe_pad_y: i16 = 0;
+  var pe_pad_x: i32 = 0;
+  var pe_pad_y: i32 = 0;
 
   // Tile Code
-  for (@range(i16, kernel_dim_x)) |idx| {
-    for (@range(i16, kernel_dim_y)) |idy| {
+  for (@range(i32, kernel_dim_x)) |idx| {
+    for (@range(i32, kernel_dim_y)) |idy| {
 
       var pe_n = ((idx+1) * pe_N -1); // last column index of the current PE
       var pe_m = ((idy+1) * pe_M -1); // last row index of the current PE
@@ -141,8 +141,8 @@ layout {
   }
 
   // Routing Configurations
-  for (@range(i16, kernel_dim_x)) |idx| {
-    for (@range(i16, kernel_dim_y)) |idy| {
+  for (@range(i32, kernel_dim_x)) |idx| {
+    for (@range(i32, kernel_dim_y)) |idy| {
       if (idx % 2 == 0){
         if(idx == 0){
           @set_color_config(idx, idy, send_east_color_1, .{.routes= .{ .rx = .{RAMP}, .tx = .{EAST}}});

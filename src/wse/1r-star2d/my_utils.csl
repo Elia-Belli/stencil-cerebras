@@ -1,7 +1,7 @@
-param width:i16;
-param height:i16;
+param width:i32;
+param height:i32;
 
-fn sides(idx:i16, idy:i16) i8 {
+fn sides(idx:i32, idy:i32) i32 {
 
   if(width == 1 and height == 1) return 0;
   
