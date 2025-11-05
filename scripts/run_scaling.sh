@@ -49,8 +49,10 @@ run_weak_scaling() {
 # Main
 # -----------------------------------------------------------------------------
 
-cd "../src/wse/1r-star2d/"
+PROGRAMS_PATH="$(pwd)/../src/wse"
+
+cd "$PROGRAMS_PATH/1r-star2d/"
 run_weak_scaling
 
-cd "../1r-box2d/"
+cd "$PROGRAMS_PATH/1r-box2d/"
 run_weak_scaling

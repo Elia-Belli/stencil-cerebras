@@ -411,6 +411,13 @@ task stencil() void {
     a_dsd = @increment_dsd_offset(a_dsd, line-halo, f32);   
   }
 
+  // reset input point to original value
+  if(idx == idy){
+    for(@range(i16,0, M, 1)) |i|{
+      A_aux_ptr[(halo+i)*line + i + halo] = A_ptr[(halo+i)*line + i + halo];
+    }
+  }
+
   // reset pad values to 0
   if(pad_x > 0){
     var pad_x_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo+N-pad_x], .stride = .{1, line-pad_x+1}, .extent = .{col, pad_x}});

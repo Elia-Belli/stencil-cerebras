@@ -2,168 +2,114 @@
 
 import json
 import numpy as np
-import math
+import time
 
 from utils import *
 
 from cerebras.sdk.runtime.sdkruntimepybind import SdkRuntime, MemcpyDataType, MemcpyOrder # type: ignore # pylint: disable=no-name-in-module
-from cerebras.sdk import sdk_utils # type: ignore # pylint: disable=no-name-in-module
 
 # Read arguments
-args, verify, verbose, suppress_traces = read_args()
+args, verify = read_args()
 
 # Get parameters from compile metadata
-with open(f"{args.name}/out.json", encoding='utf-8') as json_file:
-  compile_data = json.load(json_file)
+with open(f"{args.name}/out.json", "r", encoding="utf8") as f:
+    data = json.load(f)
 
-w = int(compile_data['params']['kernel_dim_x'])
-h = int(compile_data['params']['kernel_dim_y'])
-N = int(compile_data['params']['N'])
-M = int(compile_data['params']['M'])
-iterations = int(compile_data['params']['iterations'])
-halo = int(compile_data['params']['radius'])
+w = int(data['params']['kernel_dim_x'])
+h = int(data['params']['kernel_dim_y'])
+N = int(data['params']['N'])
+M = int(data['params']['M'])
+iterations = int(data['params']['iterations'])
+radius = int(data['params']['radius'])
+
 
 # Input
-np.random.seed(0)
-A = (np.random.rand(M,N) * 10).astype(np.float32)
-A = np.reshape([i for i in range(0,M*N)], (M,N)).astype(np.float32)
+heat_value = 10
+A = generate_input(M, N, "diagonal", value=heat_value)
+A_prepared = prepare_input(A, M, N, h, w, radius)
+
+coefficients = get_coefficients("star2d", radius)
+c_tiled = np.tile(coefficients, w*h)
 
 pad_x, pad_y = 0, 0
 if (M % h != 0): pad_x = h - (M%h)
 if (N % w != 0): pad_y = w - (N%w)
 pe_M = (M + pad_x) // h
 pe_N = (N + pad_y) // w
-tiled_shape = (pe_M + 2*halo, pe_N + 2*halo)
-elements_per_PE = (pe_M + 2*halo) * (pe_N + 2*halo)
+tiled_shape = (pe_M + 2*radius, pe_N + 2*radius)
+elements_per_PE = (pe_M + 2*radius) * (pe_N + 2*radius)
 
+runner = SdkRuntime(args.name, cmaddr=args.cmaddr)
 
-# Stencil
-coefficients = get_coefficients(args.stencil, halo)
-#coefficients = np.array([0,0,0,0,0,1,1,0,0], dtype=np.float32)
-c_tiled = np.tile(coefficients, w*h)
+runner.load()
+runner.run()
 
-# Construct a runner using SdkRuntime
-runner = SdkRuntime(args.name, cmaddr=args.cmaddr,
-                    suppress_simfab_trace=suppress_traces, 
-                    simfab_numthreads=8,
-                    msg_level = "INFO")
-
-# Get symbols
 A_symbol = runner.get_id('A')
 coeff_symbol = runner.get_id('c')
 symbol_maxmin_time = runner.get_id("maxmin_time")
 
-# Load and run the program
-runner.load()
-runner.run()
-
 # Load matrix
-A_prepared = prepare_input(A, M, N, h, w, halo)
+A_prepared = prepare_input(A, M, N, h, w, radius)
+
+start_time = time.perf_counter()
+
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
-print("\nCopying A onto Device...")
 
 # Load coefficients
 runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, len(coefficients), streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
-print("DONE!")
-print("Loading coefficients...")
+
+start_time_compute = time.perf_counter()
 
 # Launch program
 runner.launch('compute', nonblock=False)
-print("DONE!")
-print("Starting Computation...")
 
-# Retrieve result for correctness check
-if verify:
-  y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
-  runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
-    order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
-  print("DONE!")
-  print("Copying back y_result...")
+end_time_compute = time.perf_counter()
 
-  y_result = y_result.reshape(w, h, *tiled_shape)
-  y_result = y_result[:,:, halo:-halo, halo:-halo].transpose(0, 2, 1, 3)
-  y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
+# Retrieve result
+y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
+runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
 # Retrieve timings
-data = np.zeros((w*h*3), dtype=np.uint32)
-runner.memcpy_d2h(data, symbol_maxmin_time, 0, 0, w, h, 3,
+tsc = np.zeros((w*h*3), dtype=np.uint32)
+runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
   streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
-maxmin_time_hwl = data.view(np.float32).reshape((h, w, 3))
-print("DONE!")
-print("Copying back timestamps...")
 
-# Stop the program
+end_time = time.perf_counter()
+
 runner.stop()
-print("DONE!\n")
 
+####################
+##  Check Result  ##
+####################
 
-# ############################
-# ##      Check Result      ##
-# ############################
 if verify:
-  print("Checking Result")
 
-  y_expected = cpu_stencil(A.copy(), M, N, coefficients, halo, iterations)
+  y_result = y_result.reshape(w, h, *tiled_shape)
+  y_result = y_result[:,:, radius:-radius, radius:-radius].transpose(0, 2, 1, 3)
+  y_result = y_result.reshape(M+pad_x, N+pad_y)[:M,:N].ravel()
 
-  if(verbose):
-    print(f'Input:\n{A.reshape(M,N)}\n')
-    print(f'Expected:\n{y_expected.reshape(M,N)}\n')  
-    print(f'Output:\n{y_result.reshape(M,N)}\n')  
-
-  with open("../../../logs/wse_result.txt", "w+") as f:
-    for i in y_result:
-      print(f'{i}', file=f)  
-
-  with open("../../../logs/cpu_result.txt", "w+") as f:
-    for i in y_expected:
-      print(f'{i}', file=f)  
-
-  np.testing.assert_allclose(y_result, y_expected, atol=0, rtol=0)
-  print("SUCCESS!\n")
+  check_result(A, y_result, M, N, coefficients, "star2d", radius, iterations)
 
 
 ###################
 ##  Timestamps   ##
 ###################
-tsc_tensor_d2h = np.zeros(6).astype(np.uint16)
-min_cycles = math.inf
-max_cycles = 0
 
-for x in range(w):
-  for y in range(h):
-    cycles = sdk_utils.calculate_cycles(maxmin_time_hwl[x, y, :])
+cycles = parse_tsc(w, h, tsc.view(np.float32).reshape((h, w, 3)))
+time_device = cycles["max"] / (875e6)
+GStencil = (M * N * iterations) / time_device * 10e-9
 
-    if cycles < min_cycles:
-      min_cycles = cycles
-      min_w = x
-      min_h = y
-    if cycles > max_cycles:
-      max_cycles = cycles
-      max_w = x
-      max_h = y
+time_h2d = start_time_compute - start_time
+time_compute = end_time_compute - start_time_compute
+time_d2h = end_time - end_time_compute
+time_total = end_time - start_time
 
-flops = (M*N) * len(coefficients) * 2 * iterations 
-cells = (M*N) * iterations
-time_compute = max_cycles / 875e6 if (args.arch == "wse3") else 850e6
-tile_cells = cells/(h*w)
-GStencil = cells / time_compute * 10e-9
+print(f'Time (device): {time_device} s')
+print(f'GStencil/s: {GStencil}')
+print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}')
 
-if(verbose):
-  print("Cycle Counts:")
-  print("Min cycles (", min_w, ", ", min_h, "): ", min_cycles)
-  print("Max cycles (", max_w, ", ", max_h, "): ", max_cycles)
-
-  print("Total Cells: ", cells)
-  print(f'GStencil/s: {cells / time_compute * 10e-9} (TOTAL)')
-
-
-# print y_results to file
-with open("../../../logs/run_test_log.csv", "a") as f:
-  print(f'{w},{h},{M},{N},{iterations},{GStencil},{min_cycles},{max_cycles},{args.arch},star2d-{halo}r', file=f)
-
-
-real_sim= "sim" if(runner.is_simulation()) else "real"
-with open("../../../logs/weak_scaling.csv", "a") as f:
-  print(f'star2d-{halo}r,{args.arch}-{real_sim},{w},{h},{M},{N},{iterations},,{time_compute},,{GStencil}', file=f)
+with open(f"star2d-{radius}r.csv", "a") as f:
+  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}\n')

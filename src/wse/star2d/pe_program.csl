@@ -78,12 +78,12 @@ const west_ctrl_id : control_task_id = @get_control_task_id(43);
 
 var idx: i16;
 var idy: i16;
-var n_sides: i8;
+var n_sides: i16;
 const halo: i16 = radius;
 
 const line: i16 = N + 2*halo;
 const col: i16 = M + 2*halo;
-const n: i32 = line*col;
+const n: i16 = line*col;
 
 var A     = @zeros([n]f32);
 var A_aux = @zeros([n]f32);
@@ -175,7 +175,7 @@ const east_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &east_ctrl_e
 const west_ctrl_encoded = ctrl.encode_control_task_payload(east_ctrl_id);
 const west_ctrl_encoded_dsd = @get_dsd(mem1d_dsd, .{.base_address = &west_ctrl_encoded, .extent = 1});
 
-var send_completed: i8 = 0;
+var send_completed: i16 = 0;
 task north_end() void { 
   send_completed += 1; 
   @mov32(north_ctrl_dsd, north_ctrl_encoded_dsd, .{.async = true, .activate = sync_task_id});
@@ -198,7 +198,7 @@ task west_end() void {
 
 // RECV
 var west_count:  i16 = 0;
-var east_count: i16 = 0;
+var east_count:  i16 = 0;
 var north_count: i16 = 0;
 var south_count: i16 = 0;
 
@@ -222,7 +222,7 @@ task recv_west(data:f32) void{
 
 task recv_east(data:f32) void{
   const base = halo*(line) + (N+halo);
-  A_ptr[base + east_count + (east_count / halo) * (N+halo)] = data;
+  A_ptr[base + east_count +  (east_count / halo) * (N+halo)] = data;
   east_count += 1;
 }
 
@@ -252,7 +252,7 @@ task east_ctrl() void {
 }
 
 // completed recv callback --> complete all & wait for sends to finisg
-var recv_completed: i8 = 0;
+var recv_completed: i16 = 0;
 fn recv_callback() void {
   recv_completed += 1;
   @activate(sync_task_id);
@@ -305,7 +305,14 @@ task stencil() void {
     a_dsd = @increment_dsd_offset(a_dsd, -1, f32);    
   }
 
-    // reset pad values to 0
+  // reset input point to original value
+  if(idx == idy){
+    for(@range(i16,0, M, 1)) |i|{
+      A_aux_ptr[(halo+i)*line + i + halo] = A_ptr[(halo+i)*line + i + halo];
+    }
+  }
+
+  // reset pad values to 0
   if(pad_x > 0){
     var pad_x_dsd = @get_dsd(mem4d_dsd, .{.base_address = &A_aux_ptr[halo+N-pad_x], .stride = .{1, line-pad_x+1}, .extent = .{col, pad_x}});
     @fmovs(pad_x_dsd, 0.0);
