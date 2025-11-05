@@ -8,6 +8,7 @@ set -euo pipefail
 ITERATIONS=1000
 KERNELS=(2 4 8 16 32 64 128 256 512 700)
 INPUTS=(128 256 512 1024 2048 4096 8192 16384 32768 44800)
+CHANNELS=1
 
 LOGFILE="../../../logs/scaling.log"
 
@@ -33,7 +34,8 @@ run_weak_scaling() {
             --kernel-dim-y "$KERNEL_Y" \
             --inp-rows "$ROWS" \
             --inp-cols "$COLS" \
-            --iterations "$ITERATIONS"
+            --iterations "$ITERATIONS" \
+            --channels "$CHANNELS"
 
         python "appliance_run.py" | tee -a "$LOGFILE"
     done

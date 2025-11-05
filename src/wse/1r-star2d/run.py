@@ -109,7 +109,7 @@ time_total = end_time - start_time
 
 print(f'Time (device): {time_device} s')
 print(f'GStencil/s: {GStencil}')
-print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{(M * N * iterations) / time_compute * 10e-9}')
+print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}')
 
 with open("star2d-1r.csv", "a") as f:
-  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil}\n')
+  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}\n')

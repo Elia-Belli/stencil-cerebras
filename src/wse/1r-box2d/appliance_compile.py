@@ -13,13 +13,14 @@ parser.add_argument("--kernel-dim-y", type=int, default=16, help="Kernel dimensi
 parser.add_argument("--inp-rows", type=int, default=1024, help="Number of input rows")
 parser.add_argument("--inp-cols", type=int, default=1024, help="Number of input columns")
 parser.add_argument("--iterations", type=int, default=100, help="Number of iterations")
+parser.add_argument("--channels", type=int, default=1, help="Number of channels for data streaming")
 
 args = parser.parse_args()
 
 # WSE3 cores
 fabric_dim_x = 762 
 fabric_dim_y = 1172
-channels = min(args.kernel_dim_y, 16)
+channels = min(args.kernel_dim_y, args.channels)
 
 # Instantiate compiler using a context manager
 # Disable version check to ignore appliance client and server version differences.

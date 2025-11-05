@@ -1,1 +1,1 @@
-kernel_x,kernel_y,M,N,iterations,time_h2d,time_compute,time_d2h,total_time,GStencil
+kernel_x,kernel_y,M,N,iterations,time_h2d,time_compute,time_d2h,total_time,GStencil,time_device
