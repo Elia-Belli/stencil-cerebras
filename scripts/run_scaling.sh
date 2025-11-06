@@ -49,7 +49,7 @@ run_weak_scaling() {
 # Main
 # -----------------------------------------------------------------------------
 
-PROGRAMS_PATH="$(pwd)/../src/wse"
+PROGRAMS_PATH="../src/wse"
 
 cd "$PROGRAMS_PATH/1r-star2d/"
 run_weak_scaling

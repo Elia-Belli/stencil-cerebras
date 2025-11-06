@@ -11,7 +11,10 @@ logging.basicConfig(level=logging.INFO)
 with open("artifact_path.json", "r", encoding="utf8") as f:
     data = json.load(f)
     artifact_path = data["artifact_path"]
-    radius = data["params"]["radius"]
+
+with open("out/out.json", "r", encoding="utf8") as f:
+    compile_data = json.load(f)
+    radius = compile_data["params"]["radius"]
 
 # artifact_path contains the path to the compiled artifact.
 # It will be transferred and extracted in the appliance.

@@ -50,34 +50,40 @@ symbol_maxmin_time = runner.get_id("maxmin_time")
 # Load matrix
 A_prepared = prepare_input(A, M, N, h, w, radius)
 
-start_time = time.perf_counter()
+start_h2d = time.perf_counter()
 
 runner.memcpy_h2d(A_symbol, A_prepared, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
 # Load coefficients
-runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, 5, streaming=False,
+runner.memcpy_h2d(coeff_symbol, c_tiled, 0, 0, w, h, len(coefficients), streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
+end_h2d = time.perf_counter()
 
 # Launch program
 runner.launch('compute', nonblock=False)
 
-start_time_compute = time.perf_counter()
+# dummy memcpy 
+dummy = np.zeros(h*w, dtype=np.float32)
+runner.memcpy_d2h(dummy, A_symbol, 0, 0, w, h, 1, streaming=False,
+  order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
-# Retrieve timings
-tsc = np.zeros((w*h*3), dtype=np.uint32)
-runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
-  streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
-
-end_time_compute = time.perf_counter()
+start_d2h = time.perf_counter()
 
 # Retrieve result
 y_result = np.zeros(elements_per_PE*h*w, dtype=np.float32)
 runner.memcpy_d2h(y_result, A_symbol, 0, 0, w, h, elements_per_PE, streaming=False,
   order=MemcpyOrder.ROW_MAJOR, data_type=MemcpyDataType.MEMCPY_32BIT, nonblock=False)
 
-end_time = time.perf_counter()
+end_d2h = time.perf_counter()
+
+
+# Retrieve timings
+tsc = np.zeros((w*h*3), dtype=np.uint32)
+runner.memcpy_d2h(tsc, symbol_maxmin_time, 0, 0, w, h, 3,
+  streaming=False, data_type=MemcpyDataType.MEMCPY_32BIT, order=MemcpyOrder.ROW_MAJOR, nonblock=False)
+
 
 runner.stop()
 
@@ -99,17 +105,16 @@ if verify:
 ###################
 
 cycles = parse_tsc(w, h, tsc.view(np.float32).reshape((h, w, 3)))
-time_device = cycles["max"] / (875e6)
-GStencil = (M * N * iterations) / time_device * 10e-9
+time_compute = cycles["max"] / (875e6)
+GStencil = (M * N * iterations) / time_compute * 10e-9
 
-time_h2d = start_time_compute - start_time
-time_compute = end_time_compute - start_time_compute
-time_d2h = end_time - end_time_compute
-time_total = end_time - start_time
+time_h2d = end_h2d - start_h2d
+time_d2h = end_d2h - start_d2h
+time_total = time_h2d + time_compute + time_d2h
 
-print(f'Time (device): {time_device} s')
+print(f'Time (device): {time_compute} s')
 print(f'GStencil/s: {GStencil}')
-print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}')
+print(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil}')
 
 with open("star2d-1r.csv", "a") as f:
-  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil},{time_device}\n')
+  f.write(f'{w},{h},{M},{N},{iterations},{time_h2d},{time_compute},{time_d2h},{time_total},{GStencil}\n')
